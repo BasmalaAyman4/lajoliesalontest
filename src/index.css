@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+:root {
+  --font-main: 'Sora', sans-serif;
+  --font-arabic: 'Cairo', sans-serif;
+
+  --bg: #f8f9fa;
+  --bg-card: #ffffff;
+  --bg-hover: #e3e6ec;
+  --border: #c2c5cc;
+  --border-focus: #6c63ff;
+
+  --text-primary: #222222;
+  --text-secondary: #5c5c5c;
+  --text-muted: #8e8e8e;
+--table-bg: #dde9ff;
+  --accent: #0063AA;
+  --accent-hover: #004F84;
+  --accent-soft: rgba(108, 99, 255, 0.12);
+
+  --success: #167238;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --info: #38bdf8;
+
+  --radius: 10px;
+  --radius-lg: 16px;
+  --shadow: 0 4px 24px rgba(0,0,0,0.3);
+  --shadow-lg: 0 8px 40px rgba(0,0,0,0.4);
+}
+
+* {
+  box-sizing: border-box;
+
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-main);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* RTL support */
+[dir="rtl"] body,
+[dir="rtl"] * {
+  font-family: var(--font-arabic), var(--font-main);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* FullCalendar overrides */
+.fc {
+  --fc-border-color: var(--border);
+  --fc-button-bg-color: var(--accent);
+  --fc-button-border-color: var(--accent);
+  --fc-button-hover-bg-color: var(--accent-hover);
+  --fc-button-hover-border-color: var(--accent-hover);
+  --fc-button-active-bg-color: var(--accent);
+  --fc-today-bg-color: var(--accent-soft);
+  --fc-page-bg-color: var(--bg-card);
+  --fc-neutral-bg-color: var(--bg-hover);
+  --fc-list-event-hover-bg-color: var(--bg-hover);
+  --fc-event-bg-color: var(--accent);
+  --fc-event-border-color: var(--accent);
+}
+
+.fc .fc-toolbar-title { font-size: 1.1rem; font-weight: 600; color: var(--text-primary); }
+.fc .fc-col-header-cell-cushion { color: var(--text-secondary); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.fc .fc-daygrid-day-number { color: var(--text-secondary); font-size: 0.85rem; }
+.fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-number { color: var(--accent); font-weight: 700; }
+.fc table { border-color: var(--border) !important; }
+.fc .fc-scrollgrid { border-color: var(--border) !important; }
+.fc th, .fc td { border-color: var(--border) !important; }
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.animate-fade-in { animation: fadeIn 0.25s ease forwards; }
+.animate-slide-in { animation: slideInRight 0.25s ease forwards; }
