@@ -27,6 +27,7 @@ export interface SalonService {
   maxPrice?: number
   priceNoteAr?: string
   priceNoteEn?: string
+  durationMinutes?: number
   isHomeService: boolean
   isInSalonService: boolean
   isFeatured: boolean
@@ -50,6 +51,7 @@ export interface CreateServiceRequest {
   maxPrice?: number
   priceNoteAr?: string
   priceNoteEn?: string
+  durationMinutes?: number
   isHomeService: boolean
   isInSalonService: boolean
   isFeatured: boolean

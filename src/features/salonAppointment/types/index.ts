@@ -1,5 +1,12 @@
 // ─── Salon Appointment Types ──────────────────────────────────────────────────
 
+export interface AdditionalService {
+  id: number
+  salonServiceId: number
+  serviceName: string
+  price: number
+}
+
 export interface SalonAppointment {
   appointmentId: number
   timeFrom: string
@@ -14,6 +21,25 @@ export interface SalonAppointment {
   status: string
   payedDeposit: number | null
   clientName: string
+  // Pricing
+  mainServicePrice: number | null
+  expectedTotalPrice: number | null
+  additionalServicesTotal: number
+  additionalServices: AdditionalService[]
+  isPriceRange: boolean
+  minPrice: number | null
+  maxPrice: number | null
+  finalServicePrice: number | null
+  isFinalServicePriceRequired: boolean
+  paymentConfirmed: boolean
+  // QR / Check-in
+  qrToken: string | null
+  qrTokenCreatedAt: string | null
+  qrTokenExpiresAt: string | null
+  isQrTokenExpired: boolean
+  checkedInAt: string | null
+  startedAt: string | null
+  finishedAt: string | null
 }
 
 export interface PaginatedResponse<T> {
@@ -30,4 +56,12 @@ export interface AllowedTransition {
 export interface ChangeAppointmentStateRequest {
   id: number
   status: number
+}
+
+export interface UpdateMainServicePriceRequest {
+  price: number
+}
+
+export interface UpdateAdditionalServicesRequest {
+  items: { salonServiceId: number; price: number }[]
 }

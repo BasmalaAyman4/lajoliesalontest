@@ -49,7 +49,7 @@ export default function ServiceImageModal({
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'image/*': [] },
+    accept:  { 'image/png': ['.png'], 'image/jpeg': ['.jpg', '.jpeg'], 'image/webp': ['.webp'] },
     multiple: false,
     maxSize: MAX_SIZE,
   })

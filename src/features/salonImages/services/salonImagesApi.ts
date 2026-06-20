@@ -46,6 +46,16 @@ export const salonImagesApi = api.injectEndpoints({
       }),
       invalidatesTags: (_result, _error, id) => [{ type: 'SalonImage', id }],
     }),
+
+    // ── PUT sort order ────────────────────────────────────────────────────────────
+sortSalonImages: builder.mutation<void, { imageId: number; sortOrder: number }[]>({
+  query: (body) => ({
+    url: '/api/salon/SalonImage/sort',
+    method: 'PUT',
+    body,
+  }),
+  invalidatesTags: [{ type: 'SalonImage', id: 'LIST' }],
+}),
   }),
   overrideExisting: false,
 })
@@ -54,4 +64,5 @@ export const {
   useGetSalonImagesQuery,
   useUploadSalonImagesMutation,
   useDeleteSalonImageMutation,
+  useSortSalonImagesMutation,
 } = salonImagesApi

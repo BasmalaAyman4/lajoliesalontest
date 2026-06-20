@@ -1,8 +1,11 @@
 // ─── Salon Appointment API ────────────────────────────────────────────────────
 //
-//  GET    /api/salon/SalonAppointment?pageNo=1&pageSize=20&search=  → PaginatedResponse<SalonAppointment>
-//  GET    /api/salon/SalonAppointment/getAllowedTransitions/:id      → AllowedTransition[]
-//  POST   /api/salon/SalonAppointment/changeAppointmentState        → void
+//  GET    /api/salon/SalonAppointment?pageNo=1&pageSize=20&search=
+//  GET    /api/salon/SalonAppointment/:id
+//  GET    /api/salon/SalonAppointment/getAllowedTransitions/:id
+//  POST   /api/salon/SalonAppointment/changeAppointmentState
+//  PUT    /api/salon/SalonAppointment/:id/mainServicePrice
+//  PUT    /api/salon/SalonAppointment/:id/additionalServices
 
 import { api } from '@/services/api'
 import type {
@@ -10,11 +13,13 @@ import type {
   PaginatedResponse,
   AllowedTransition,
   ChangeAppointmentStateRequest,
+  UpdateMainServicePriceRequest,
+  UpdateAdditionalServicesRequest,
 } from '../types'
 
 export const salonAppointmentApi = api.injectEndpoints({
   endpoints: (builder) => ({
-    // ── GET paginated appointments (with optional server-side search) ────────
+    // ── GET paginated appointments ───────────────────────────────────────────
     getSalonAppointments: builder.query<
       PaginatedResponse<SalonAppointment>,
       { pageNo: number; pageSize: number; search?: string }
@@ -39,10 +44,15 @@ export const salonAppointmentApi = api.injectEndpoints({
           : [{ type: 'SalonAppointment', id: 'LIST' }],
     }),
 
-    // ── GET allowed transitions for an appointment ───────────────────────────
+    // ── GET single appointment by ID (used to refresh qrToken post check-in) ─
+    getSalonAppointmentById: builder.query<SalonAppointment, number>({
+      query: (id) => `/api/salon/SalonAppointment/${id}`,
+      providesTags: (_result, _error, id) => [{ type: 'SalonAppointment', id }],
+    }),
+
+    // ── GET allowed transitions ──────────────────────────────────────────────
     getAllowedTransitions: builder.query<AllowedTransition[], number>({
-      query: (id) =>
-        `/api/salon/SalonAppointment/getAllowedTransitions/${id}`,
+      query: (id) => `/api/salon/SalonAppointment/getAllowedTransitions/${id}`,
     }),
 
     // ── POST change appointment state ────────────────────────────────────────
@@ -57,12 +67,47 @@ export const salonAppointmentApi = api.injectEndpoints({
         { type: 'SalonAppointment', id: 'LIST' },
       ],
     }),
+
+    // ── PUT update main service price ────────────────────────────────────────
+    updateMainServicePrice: builder.mutation<
+      void,
+      { id: number } & UpdateMainServicePriceRequest
+    >({
+      query: ({ id, price }) => ({
+        url: `/api/salon/SalonAppointment/${id}/mainServicePrice`,
+        method: 'PUT',
+        body: { price },
+      }),
+      invalidatesTags: (_result, _error, { id }) => [
+        { type: 'SalonAppointment', id },
+        { type: 'SalonAppointment', id: 'LIST' },
+      ],
+    }),
+
+    // ── PUT update additional services ───────────────────────────────────────
+    updateAdditionalServices: builder.mutation<
+      void,
+      { id: number } & UpdateAdditionalServicesRequest
+    >({
+      query: ({ id, items }) => ({
+        url: `/api/salon/SalonAppointment/${id}/additionalServices`,
+        method: 'PUT',
+        body: { items },
+      }),
+      invalidatesTags: (_result, _error, { id }) => [
+        { type: 'SalonAppointment', id },
+        { type: 'SalonAppointment', id: 'LIST' },
+      ],
+    }),
   }),
   overrideExisting: false,
 })
 
 export const {
   useGetSalonAppointmentsQuery,
+  useGetSalonAppointmentByIdQuery,   // ← new
   useGetAllowedTransitionsQuery,
   useChangeAppointmentStateMutation,
+  useUpdateMainServicePriceMutation,
+  useUpdateAdditionalServicesMutation,
 } = salonAppointmentApi

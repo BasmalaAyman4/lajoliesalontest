@@ -48,7 +48,9 @@ export default function UploadImage({
 
   const isVideo = mode === 'video'
   const resolvedMaxSize = maxSize ?? (isVideo ? 100 * 1024 * 1024 : 5 * 1024 * 1024)
-  const accept = isVideo ? { 'video/*': [] } : { 'image/*': [] }
+const accept = isVideo
+  ? { 'video/*': [] }
+  : { 'image/png': ['.png'], 'image/jpeg': ['.jpg', '.jpeg'], 'image/webp': ['.webp'] }
 
 
 const onDrop = useCallback(

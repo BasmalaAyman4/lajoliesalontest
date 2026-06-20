@@ -1,23 +1,25 @@
 // ─── Salon Appointment Page ───────────────────────────────────────────────────
 //
-//  Lists all appointments with server-side pagination + server-side search.
-//  Uses a debounced search query so every keystroke doesn't fire a request.
+//  Lists all appointments with server-side pagination + debounced search.
+//  Row actions:
+//   • HiQrCode   → QR modal  (statusId === 4 "Confirmed" AND qrToken !== null)
+//   • HiRefresh  → status transition modal (all rows)
+//   • HiPencil   → pricing detail modal    (all rows)
 
 import { useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
-import { HiCalendar, HiLocationMarker, HiClock, HiRefresh } from 'react-icons/hi'
+import { HiCalendar, HiLocationMarker, HiClock, HiRefresh, HiPencil } from 'react-icons/hi'
+import { HiQrCode } from 'react-icons/hi2'
 import {
   Button,
   DataTable,
   type Column,
 } from '@/components/shared'
 import type { SalonAppointment } from '../types'
-import {
-  useGetSalonAppointmentsQuery,
-  useChangeAppointmentStateMutation,
-} from '../services/salonAppointmentApi'
+import { useGetSalonAppointmentsQuery } from '../services/salonAppointmentApi'
 import AppointmentStatusModal from '../components/AppointmentStatusModal'
+import AppointmentQrModal    from '../components/AppointmentQrModal'
+import AppointmentDetailModal from '../components/AppointmentDetailModal'
 import { useDebounce } from '@/hooks/useDebounce'
 
 // ── Status colour map ─────────────────────────────────────────────────────────
@@ -25,26 +27,36 @@ function getStatusStyle(statusId: number): { bg: string; text: string } {
   switch (statusId) {
     case 3:  return { bg: 'bg-yellow-50',  text: 'text-yellow-700' }  // Pending Approval
     case 4:  return { bg: 'bg-green-50',   text: 'text-green-700'  }  // Confirmed
-    case 5:  return { bg: 'bg-red-50',     text: 'text-red-700'    }  // Rejected by Salon
-    case 6:  return { bg: 'bg-orange-50',  text: 'text-orange-700' }  // Cancelled by Client
+    case 5:  return { bg: 'bg-red-50',     text: 'text-red-700'    }  // Rejected
+    case 6:  return { bg: 'bg-orange-50',  text: 'text-orange-700' }  // Cancelled
+    case 8:  return { bg: 'bg-blue-50',    text: 'text-blue-700'   }  // Completed
     case 9:  return { bg: 'bg-gray-100',   text: 'text-gray-500'   }  // Expired
+    case 10: return { bg: 'bg-purple-50',  text: 'text-purple-700' }  // Checked In
     default: return { bg: 'bg-[var(--bg-hover)]', text: 'text-[var(--text-muted)]' }
   }
 }
+
+// ── Modal state helper ────────────────────────────────────────────────────────
+interface ModalState {
+  open: boolean
+  appointment: SalonAppointment | null
+}
+
+const CLOSED: ModalState  = { open: false, appointment: null }
+const openFor = (a: SalonAppointment): ModalState => ({ open: true, appointment: a })
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function SalonAppointmentPage() {
   const { t } = useTranslation()
 
   // ── Pagination ───────────────────────────────────────────────────────────
-  const [page, setPage]   = useState(1)
+  const [page,  setPage]  = useState(1)
   const [limit, setLimit] = useState(20)
 
-  // ── Search (debounced so we don't spam the server) ───────────────────────
+  // ── Search ───────────────────────────────────────────────────────────────
   const [searchInput, setSearchInput] = useState('')
   const search = useDebounce(searchInput, 400)
 
-  // Reset to page 1 whenever search changes
   const handleSearch = useCallback((q: string) => {
     setSearchInput(q)
     setPage(1)
@@ -52,46 +64,22 @@ export default function SalonAppointmentPage() {
 
   // ── Data ─────────────────────────────────────────────────────────────────
   const { data, isLoading, isError, refetch } = useGetSalonAppointmentsQuery({
-    pageNo: page,
+    pageNo:   page,
     pageSize: limit,
-    search,          // ← sent to server; remove if your API doesn't support it yet
+    search,
   })
 
   const appointments = data?.data       ?? []
   const totalCount   = data?.totalCount ?? 0
 
-  // ── Status change ────────────────────────────────────────────────────────
-  const [changeState, { isLoading: isChanging }] = useChangeAppointmentStateMutation()
-  const [transitionModal, setTransitionModal] = useState<{
-    open: boolean
-    appointment: SalonAppointment | null
-  }>({ open: false, appointment: null })
-
-  const openTransitionModal  = (a: SalonAppointment) =>
-    setTransitionModal({ open: true, appointment: a })
-  const closeTransitionModal = () =>
-    setTransitionModal({ open: false, appointment: null })
-
-  const handleStateChange = async (statusId: number) => {
-    if (!transitionModal.appointment) return
-    try {
-      await changeState({
-        id:     transitionModal.appointment.appointmentId,
-        status: statusId,
-      }).unwrap()
-      toast.success(t('common.success'))
-      closeTransitionModal()
-    } catch {
-      toast.error(t('common.error'))
-    }
-  }
+  // ── Modal state ──────────────────────────────────────────────────────────
+  const [statusModal, setStatusModal] = useState<ModalState>(CLOSED)
+  const [qrModal,     setQrModal]     = useState<ModalState>(CLOSED)
+  const [detailModal, setDetailModal] = useState<ModalState>(CLOSED)
 
   // ── Date formatter ───────────────────────────────────────────────────────
   const formatDate = (a: SalonAppointment) => {
-    const months = [
-      'Jan','Feb','Mar','Apr','May','Jun',
-      'Jul','Aug','Sep','Oct','Nov','Dec',
-    ]
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
     return `${a.day} ${months[a.month - 1]} ${a.year}`
   }
 
@@ -170,9 +158,7 @@ export default function SalonAppointmentPage() {
       render: (row) => {
         const style = getStatusStyle(row.statusId)
         return (
-          <span
-            className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap ${style.bg} ${style.text}`}
-          >
+          <span className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap ${style.bg} ${style.text}`}>
             {row.status}
           </span>
         )
@@ -182,19 +168,38 @@ export default function SalonAppointmentPage() {
       key: 'actions',
       label: '',
       align: 'right',
-      width: '80px',
-      render: (row) => (
-        <button
-          type="button"
-          title={t('appointment.changeStatus')}
-          onClick={() => openTransitionModal(row)}
-          className="w-8 h-8 rounded-lg flex items-center justify-center
-            text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--accent-soft)]
-            transition-colors"
-        >
-          <HiRefresh size={15} />
-        </button>
-      ),
+      width: '112px',
+      render: (row) => {
+        // Show QR button only when appointment is Confirmed AND has a qrToken
+        const hasQr = row.statusId === 4 && row.qrToken != null
+        return (
+          <div className="flex items-center justify-end gap-1">
+            {/* Pricing / detail edit */}
+            <ActionButton
+              title={t('appointment.editPricing', 'Edit Pricing')}
+              onClick={() => setDetailModal(openFor(row))}
+              icon={<HiPencil size={14} />}
+            />
+
+            {/* QR Code — visible only when Confirmed and qrToken exists */}
+            {hasQr && (
+              <ActionButton
+                title={t('appointment.showQr', 'Show QR Code')}
+                onClick={() => setQrModal(openFor(row))}
+                icon={<HiQrCode size={15} />}
+                accent
+              />
+            )}
+
+            {/* Status transition */}
+            <ActionButton
+              title={t('appointment.changeStatus', 'Change Status')}
+              onClick={() => setStatusModal(openFor(row))}
+              icon={<HiRefresh size={15} />}
+            />
+          </div>
+        )
+      },
     },
   ]
 
@@ -202,9 +207,7 @@ export default function SalonAppointmentPage() {
   if (isError) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-3">
-        <p className="text-sm text-[var(--danger)]">
-          {t('appointment.loadError')}
-        </p>
+        <p className="text-sm text-[var(--danger)]">{t('appointment.loadError')}</p>
         <Button variant="secondary" onClick={() => refetch()}>
           {t('common.retry')}
         </Button>
@@ -227,18 +230,15 @@ export default function SalonAppointmentPage() {
         </div>
       </div>
 
-      {/* Table — server-side pagination + search */}
+      {/* Table */}
       <DataTable<SalonAppointment>
         columns={columns}
         data={appointments}
         rowKey="appointmentId"
         loading={isLoading}
-        // Hand the typed value to DataTable so its internal input is controlled,
-        // but route changes through our handler so page resets properly.
         searchPlaceholder={t('appointment.searchPlaceholder')}
         onSearch={handleSearch}
         emptyMessage={t('appointment.noAppointments')}
-        // Server-side pagination
         total={totalCount}
         page={page}
         limit={limit}
@@ -246,12 +246,54 @@ export default function SalonAppointmentPage() {
         onLimitChange={(l) => { setLimit(l); setPage(1) }}
       />
 
-      {/* Status modal */}
+      {/* ── Modals ── */}
       <AppointmentStatusModal
-        open={transitionModal.open}
-        onClose={closeTransitionModal}
-        appointment={transitionModal.appointment}
+        open={statusModal.open}
+        onClose={() => setStatusModal(CLOSED)}
+        appointment={statusModal.appointment}
+      />
+
+      {/* QR code modal — just displays the existing token, no check-in action */}
+      <AppointmentQrModal
+        open={qrModal.open}
+        onClose={() => setQrModal(CLOSED)}
+        appointment={qrModal.appointment}
+      />
+
+      <AppointmentDetailModal
+        open={detailModal.open}
+        onClose={() => setDetailModal(CLOSED)}
+        appointment={detailModal.appointment}
       />
     </div>
+  )
+}
+
+// ── Small reusable icon button ────────────────────────────────────────────────
+function ActionButton({
+  title,
+  onClick,
+  icon,
+  accent = false,
+}: {
+  title:   string
+  onClick: () => void
+  icon:    React.ReactNode
+  accent?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      className={[
+        'w-8 h-8 rounded-lg flex items-center justify-center transition-colors',
+        accent
+          ? 'text-[var(--accent)] hover:bg-[var(--accent-soft)]'
+          : 'text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--accent-soft)]',
+      ].join(' ')}
+    >
+      {icon}
+    </button>
   )
 }

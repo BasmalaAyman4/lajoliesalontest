@@ -41,12 +41,13 @@ const schema = z
     nameEn: z.string().min(1, 'English name is required'),
     descriptionAr: z.string().min(1, 'Arabic description is required'),
     descriptionEn: z.string().min(1, 'English description is required'),
+    durationMinutes: z.coerce.number().min(1, 'Duration is required'),
     isPriceRange: z.boolean(),
     price: z.coerce.number().optional(),
     minPrice: z.coerce.number().optional(),
     maxPrice: z.coerce.number().optional(),
-    priceNoteAr: z.string().optional(),
-    priceNoteEn: z.string().optional(),
+  priceNoteAr: z.string().optional().default(''),
+priceNoteEn: z.string().optional().default(''),
     isHomeService: z.boolean(),
     isInSalonService: z.boolean(),
     isFeatured: z.boolean(),
@@ -89,6 +90,7 @@ const DEFAULT_VALUES: FormValues = {
   nameEn: '',
   descriptionAr: '',
   descriptionEn: '',
+    durationMinutes: 30,
   isPriceRange: false,
   price: 0,
   minPrice: 0,
@@ -182,6 +184,7 @@ export default function ServiceFormModal({
               nameEn: service.nameEn,
               descriptionAr: service.descriptionAr,
               descriptionEn: service.descriptionEn,
+              durationMinutes: service.durationMinutes,
               isPriceRange: service.isPriceRange,
               price: service.price ?? 0,
               minPrice: service.minPrice ?? 0,
@@ -328,7 +331,21 @@ export default function ServiceFormModal({
             required
           />
         </div>
+        
+        {/* ── Duration ────────────────────────────────────────────────────── */}
 
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Input
+            {...register('durationMinutes')}
+            label={t('service.durationservice', 'Avarage Duration (minutes)')}
+            type="number"
+            min={1}
+            placeholder="e.g. 30"
+            error={errors.durationMinutes?.message}
+            required
+          />
+        </div>
+        
         {/* ── Pricing ─────────────────────────────────────────────────────── */}
         <div className="rounded-[var(--radius-lg)] border border-[var(--border)] p-4 flex flex-col gap-4">
           <div className="flex items-center justify-between">
@@ -380,21 +397,24 @@ export default function ServiceFormModal({
                   required
                 />
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Input
-                  {...register('priceNoteEn')}
-                  label={t('service.priceNoteEn', 'Price Note (EN)')}
-                  placeholder="e.g. Starting from"
-                  error={errors.priceNoteEn?.message}
-                />
-                <Input
-                  {...register('priceNoteAr')}
-                  label={t('service.priceNoteAr', 'Price Note (AR)')}
-                  placeholder="مثال: يبدأ من"
-                  error={errors.priceNoteAr?.message}
-                  dir="rtl"
-                />
-              </div>
+             {/* داخل الـ isPriceRange block، بدّلي الـ price notes inputs */}
+<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+  <Textarea
+    {...register('priceNoteEn')}
+    label={t('service.priceNoteEn', 'Price Note (EN)')}
+    placeholder="e.g. Starting from, depending on hair length"
+    error={errors.priceNoteEn?.message}
+    rows={2}
+  />
+  <Textarea
+    {...register('priceNoteAr')}
+    label={t('service.priceNoteAr', 'Price Note (AR)')}
+    placeholder="مثال: يبدأ من، حسب طول الشعر"
+    error={errors.priceNoteAr?.message}
+    rows={2}
+    dir="rtl"
+  />
+</div>
             </div>
           )}
         </div>

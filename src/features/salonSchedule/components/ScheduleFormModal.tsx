@@ -133,7 +133,7 @@ const DEFAULT_VALUES: FormValues = {
   depositDuration:      0,
   serviceDuration:      60,
   howManyInDay:         null,
-  howManyInPeriod:      0,
+  howManyInPeriod:      1,
   canCancelBefore:      24,
   requiredSalonApproved: false,
   freeScheduleTimes:    [],
