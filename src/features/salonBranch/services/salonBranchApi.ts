@@ -6,7 +6,7 @@
 //  DELETE /api/salon/Branch/:id     → void
 
 import { api } from '@/services/api'
-import type { SalonBranch, CreateBranchRequest, UpdateBranchRequest } from '../types'
+import type { SalonBranch, CreateBranchRequest, UpdateBranchRequest, BranchChair } from '../types'
 
 export const salonBranchApi = api.injectEndpoints({
   endpoints: (builder) => ({
@@ -56,6 +56,12 @@ export const salonBranchApi = api.injectEndpoints({
         { type: 'SalonBranch', id: 'LIST' },
       ],
     }),
+
+    // ── GET branch chairs ───────────────────────────────────────────────────
+    getBranchChairs: builder.query<BranchChair[], number>({
+      query: (branchId) => `/api/salon/BranchChair/branch/${branchId}`,
+      providesTags: (_result, _error, branchId) => [{ type: 'BranchChair', id: branchId }],
+    }),
   }),
   overrideExisting: false,
 })
@@ -65,4 +71,5 @@ export const {
   useCreateSalonBranchMutation,
   useUpdateSalonBranchMutation,
   useDeleteSalonBranchMutation,
+  useGetBranchChairsQuery,
 } = salonBranchApi

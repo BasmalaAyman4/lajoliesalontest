@@ -14,7 +14,7 @@ import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import listPlugin from '@fullcalendar/list'
 import type { EventClickArg, DateClickArg, EventContentArg } from '@fullcalendar/core'
-import { HiPlus, HiPencil, HiTrash, HiCalendar, HiViewList, HiPlay } from 'react-icons/hi'
+import { HiPlus, HiPencil, HiTrash, HiCalendar, HiViewList, HiPlay, HiLightningBolt } from 'react-icons/hi'
 import { Button, ConfirmModal, DataTable, type Column } from '@/components/shared'
 import type { SalonSchedule } from '../types'
 import {
@@ -22,7 +22,7 @@ import {
   useDeleteSalonScheduleMutation,
 } from '../services/salonScheduleApi'
 import ScheduleFormModal from '../components/ScheduleFormModal'
-
+import ScheduleQuickAddModal from '../components/ScheduleQuickAddModal'
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const pad = (n: number) => String(n).padStart(2, '0')
 
@@ -54,6 +54,8 @@ export default function SalonSchedulePage() {
     schedule?: SalonSchedule
     defaultDate?: { year: number; month: number; day: number }
   }>({ open: false })
+  const [quickAddOpen, setQuickAddOpen] = useState(false)
+
   const [deleteModal, setDeleteModal] = useState<{
     open: boolean
     id: number | null
@@ -393,7 +395,14 @@ export default function SalonSchedulePage() {
               <span className="hidden xs:inline">{t('schedule.listView', 'List')}</span>
             </button>
           </div>
-
+ <Button
+           variant="secondary"
+           onClick={() => setQuickAddOpen(true)}
+           leftIcon={<HiLightningBolt size={15} />}
+         >
+           <span className="hidden sm:inline">{t('schedule.quickAdd', 'Quick Add')}</span>
+           <span className="sm:hidden">{t('common.add', 'Add')}</span>
++         </Button>
           <Button onClick={openAdd} leftIcon={<HiPlus size={15} />}>
             <span className="hidden sm:inline">{t('schedule.addSchedule', 'Add Schedule')}</span>
             <span className="sm:hidden">{t('common.add', 'Add')}</span>
@@ -573,6 +582,7 @@ export default function SalonSchedulePage() {
         schedule={formModal.schedule}
         defaultDate={formModal.defaultDate}
       />
++     <ScheduleQuickAddModal open={quickAddOpen} onClose={() => setQuickAddOpen(false)} />
 
       {/* Delete / Play confirm modal */}
       <ConfirmModal

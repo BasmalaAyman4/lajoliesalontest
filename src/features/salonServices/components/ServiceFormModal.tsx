@@ -4,10 +4,10 @@
 //  In Add mode, it is a gorgeous 3-step wizard:
 //    Step 1: Service details
 //    Step 2: Branches & timing selection
-//    Step 3: Advanced scheduling & breaks
+//    Step 3: Advanced scheduling & breaks (chairs are picked PER BRANCH here)
 //
 //  After successfully creating the service, it loops through the selected branches
-//  and calls the schedule API for each to create the schedule automatically.
+//  and calls the schedule API for each — sending that branch's own chosen chair.
 //
 //  In Edit mode, it remains a single-step modal to change service properties.
 
@@ -26,10 +26,47 @@ import {
   useGetServiceCategoryDropdownQuery,
   useGetServiceTypeByCategoryDropdownQuery,
 } from '../services/salonServiceApi'
-import { useGetSalonBranchesQuery } from '@/features/salonBranch/services/salonBranchApi'
+import { useGetSalonBranchesQuery, useGetBranchChairsQuery } from '@/features/salonBranch/services/salonBranchApi'
 import { useCreateSalonScheduleMutation } from '@/features/salonSchedule/services/salonScheduleApi'
 import { HiCalendar, HiPlus, HiTrash, HiChevronLeft, HiChevronRight } from 'react-icons/hi'
 import { cn } from '@/lib/cn'
+
+// ── Yes/No Toggle wrapper ───────────────────────────────────────────────────────
+//  Wraps the shared <Toggle> with "No / Yes" (or "لا / نعم") labels on either
+//  side. Used everywhere a boolean toggle appears in this modal.
+
+function YesNoToggle({
+  checked,
+  onChange,
+  lang,
+}: {
+  checked: boolean
+  onChange: (val: boolean) => void
+  lang: string
+}) {
+  const isAr = lang === 'ar'
+  return (
+    <div className="flex items-center gap-2" dir={isAr ? 'rtl' : 'ltr'}>
+      <span
+        className={cn(
+          'text-xs font-semibold transition-colors',
+          !checked ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'
+        )}
+      >
+        {isAr ? 'لا' : 'No'}
+      </span>
+      <Toggle checked={checked} onChange={onChange} lang={lang} />
+      <span
+        className={cn(
+          'text-xs font-semibold transition-colors',
+          checked ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'
+        )}
+      >
+        {isAr ? 'نعم' : 'Yes'}
+      </span>
+    </div>
+  )
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -57,55 +94,62 @@ const timeSchema = z.object({
   minute: z.number().min(0).max(59),
 })
 
-const schema = z
-  .object({
-    // Step 1 fields
-    serviceCategoriesId: z.coerce.number().min(1, 'Category is required'),
-    serviceTypeId: z.coerce.number().min(1, 'Service type is required'),
-    nameAr: z.string().min(1, 'Arabic name is required'),
-    nameEn: z.string().min(1, 'English name is required'),
-    descriptionAr: z.string().min(1, 'Arabic description is required'),
-    descriptionEn: z.string().min(1, 'English description is required'),
-    durationMinutes: z.coerce.number().min(1, 'Duration is required'),
-    isPriceRange: z.boolean(),
-    price: z.coerce.number().optional(),
-    minPrice: z.coerce.number().optional(),
-    maxPrice: z.coerce.number().optional(),
-    priceNoteAr: z.string().optional().default(''),
-    priceNoteEn: z.string().optional().default(''),
-    isHomeService: z.boolean(),
-    isInSalonService: z.boolean(),
-    isFeatured: z.boolean(),
-    isActive: z.boolean(),
+// One chair assignment for one branch
+const branchChairSchema = z.object({
+  chairId: z.coerce.number(),
+  howManyInPeriod: z.coerce.number().min(1).default(1),
+})
 
-    // Step 2 fields (schedules)
-    allBranches: z.boolean().default(true),
-    selectedBranchIds: z.array(z.number()).default([]),
-    allMonth: z.boolean().default(true),
-    fromDate: z.string().optional().default(''),
-    toDate: z.string().optional().default(''),
-    availableAllDay: z.boolean().default(true),
-    timeFrom: timeSchema.default({ hour: 9, minute: 0 }),
-    timeTo: timeSchema.default({ hour: 21, minute: 0 }),
+const baseSchema = z.object({
+  // Step 1 fields
+  serviceCategoriesId: z.coerce.number().min(1, 'Category is required'),
+  serviceTypeId: z.coerce.number().min(1, 'Service type is required'),
+  nameAr: z.string().min(1, 'Arabic name is required'),
+  nameEn: z.string().min(1, 'English name is required'),
+  descriptionAr: z.string().min(1, 'Arabic description is required'),
+  descriptionEn: z.string().min(1, 'English description is required'),
+  durationMinutes: z.coerce.number().min(1, 'Duration is required'),
+  isPriceRange: z.boolean(),
+  price: z.coerce.number().optional(),
+  minPrice: z.coerce.number().optional(),
+  maxPrice: z.coerce.number().optional(),
+  priceNoteAr: z.string().optional().default(''),
+  priceNoteEn: z.string().optional().default(''),
+  isHomeService: z.boolean(),
+  isInSalonService: z.boolean(),
+  isFeatured: z.boolean(),
+  isActive: z.boolean(),
 
-    // Step 3 fields (schedules)
-    serviceDuration: z.coerce.number().min(1, 'Service duration is required').default(30),
-    canCancelBefore: z.coerce.number().min(0).default(24),
-    allChairs: z.boolean().default(true),
-    howManyInPeriod: z.coerce.number().min(0).default(999),
-    requiredSalonApproved: z.boolean().default(false),
-    requiredDesposit: z.boolean().default(false),
-    depositMinimumValue: z.coerce.number().min(0).default(0),
-    depositDuration: z.coerce.number().min(0).default(0),
-    freeScheduleTimes: z.array(
-      z.object({
-        id: z.number().optional(),
-        timeFrom: timeSchema,
-        toTime: timeSchema,
-      })
-    ).default([]),
-  })
-  .superRefine((data, ctx) => {
+  // Step 2 fields (schedules)
+  allBranches: z.boolean().default(true),
+  selectedBranchIds: z.array(z.number()).default([]),
+  allMonth: z.boolean().default(true),
+  fromDate: z.string().optional().default(''),
+  toDate: z.string().optional().default(''),
+  availableAllDay: z.boolean().default(true),
+  timeFrom: timeSchema.default({ hour: 9, minute: 0 }),
+  timeTo: timeSchema.default({ hour: 21, minute: 0 }),
+
+  // Step 3 fields (schedules)
+  serviceDuration: z.coerce.number().min(1, 'Service duration is required').default(30),
+  canCancelBefore: z.coerce.number().min(0).default(24),
+  // Keyed by branchId (as string) → the chair chosen for THAT branch
+  branchChairs: z.record(z.string(), branchChairSchema).default({}),
+  requiredSalonApproved: z.boolean().default(false),
+  requiredDesposit: z.boolean().default(false),
+  depositMinimumValue: z.coerce.number().min(0).default(0),
+  depositDuration: z.coerce.number().min(0).default(0),
+  freeScheduleTimes: z.array(
+    z.object({
+      id: z.number().optional(),
+      timeFrom: timeSchema,
+      toTime: timeSchema,
+    })
+  ).default([]),
+})
+
+const getSchema = (isEdit: boolean, allBranchIds: number[]) =>
+  baseSchema.superRefine((data, ctx) => {
     // Step 1 Pricing
     if (!data.isPriceRange) {
       if (data.price === undefined || data.price < 0) {
@@ -150,13 +194,6 @@ const schema = z
         ctx.addIssue({ code: 'custom', path: ['toDate'], message: 'End date must be after start date' })
       }
     }
-    if (!data.allChairs && (data.howManyInPeriod === undefined || data.howManyInPeriod < 1)) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['howManyInPeriod'],
-        message: 'Number of chairs must be at least 1',
-      })
-    }
     if (data.requiredDesposit) {
       if (data.depositMinimumValue === undefined || data.depositMinimumValue < 0) {
         ctx.addIssue({
@@ -166,9 +203,24 @@ const schema = z
         })
       }
     }
+
+    // Every targeted branch must have its own chair assigned
+    if (!isEdit) {
+      const targetIds = data.allBranches ? allBranchIds : data.selectedBranchIds
+      targetIds.forEach((branchId) => {
+        const sel = data.branchChairs[String(branchId)]
+        if (!sel || !sel.chairId) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['branchChairs', String(branchId), 'chairId'],
+            message: 'A chair is required for this branch',
+          })
+        }
+      })
+    }
   })
 
-type FormValues = z.infer<typeof schema>
+type FormValues = z.infer<typeof baseSchema>
 
 const getInitialDefaultValues = () => {
   const now = new Date()
@@ -204,8 +256,7 @@ const getInitialDefaultValues = () => {
     // Step 3
     serviceDuration: 30,
     canCancelBefore: 24,
-    allChairs: true,
-    howManyInPeriod: 999,
+    branchChairs: {} as Record<string, { chairId: number; howManyInPeriod: number }>,
     requiredSalonApproved: false,
     requiredDesposit: false,
     depositMinimumValue: 0,
@@ -237,6 +288,7 @@ export default function ServiceFormModal({
   const isEdit = Boolean(service)
 
   const [step, setStep] = useState(1)
+  const [hasBreaks, setHasBreaks] = useState(false)
 
   const [createService, { isLoading: isCreating }] = useCreateSalonServiceMutation()
   const [updateService, { isLoading: isUpdating }] = useUpdateSalonServiceMutation()
@@ -253,6 +305,10 @@ export default function ServiceFormModal({
     }))
   }, [branches, lang])
 
+  const branchIdList = useMemo(() => branches.map((b) => b.id), [branches])
+
+  const validationSchema = useMemo(() => getSchema(isEdit, branchIdList), [isEdit, branchIdList])
+
   // ── Form ────────────────────────────────────────────────────────────────────
   const {
     register,
@@ -264,7 +320,7 @@ export default function ServiceFormModal({
     trigger,
     formState: { errors },
   } = useForm<FormValues>({
-    resolver: zodResolver(schema) as any,
+    resolver: zodResolver(validationSchema) as any,
     defaultValues: getInitialDefaultValues(),
   })
 
@@ -273,10 +329,42 @@ export default function ServiceFormModal({
   const selectedCategoryId = watch('serviceCategoriesId')
   const isPriceRange = watch('isPriceRange')
   const allBranches = watch('allBranches')
+  const selectedBranchIds = watch('selectedBranchIds')
   const allMonth = watch('allMonth')
   const availableAllDay = watch('availableAllDay')
-  const allChairs = watch('allChairs')
   const requiredDesposit = watch('requiredDesposit')
+  const branchChairs = watch('branchChairs')
+
+  // ── Chair branch selection ───────────────────────────────────────────────────
+  //  The list of branches a chair must be assigned to = whatever will actually
+  //  get a schedule created: the picked branches, or ALL branches if that toggle is on.
+  const chairBranchOptions = useMemo(() => {
+    if (!allBranches && selectedBranchIds && selectedBranchIds.length > 0) {
+      return branches.filter((b) => selectedBranchIds.includes(b.id))
+    }
+    return branches
+  }, [allBranches, selectedBranchIds, branches])
+
+  // Which branch's chairs are currently being viewed/edited in Step 3
+  const [chairBranchId, setChairBranchId] = useState<number | undefined>(undefined)
+
+  // Keep chairBranchId valid whenever the candidate branch list changes
+  // (e.g. user goes back to Step 2 and changes the selected branches)
+  useEffect(() => {
+    if (chairBranchOptions.length === 0) {
+      setChairBranchId(undefined)
+      return
+    }
+    setChairBranchId((prev) =>
+      prev && chairBranchOptions.some((b) => b.id === prev) ? prev : chairBranchOptions[0].id
+    )
+  }, [chairBranchOptions])
+
+  // Chairs list for whichever branch is currently being viewed
+  const { data: chairs = [], isFetching: isLoadingChairs } = useGetBranchChairsQuery(
+    chairBranchId!,
+    { skip: !chairBranchId || !open }
+  )
 
   // ── Dropdown queries ────────────────────────────────────────────────────────
   const { data: categories = [] } = useGetServiceCategoryDropdownQuery(undefined, { skip: !open })
@@ -307,28 +395,30 @@ export default function ServiceFormModal({
   useEffect(() => {
     if (open) {
       setStep(1)
+      setHasBreaks(false)
+      setChairBranchId(undefined)
       reset(
         service
           ? {
-              ...getInitialDefaultValues(),
-              serviceCategoriesId: service.serviceCategoriesId,
-              serviceTypeId: service.serviceTypeId,
-              nameAr: service.nameAr,
-              nameEn: service.nameEn,
-              descriptionAr: service.descriptionAr,
-              descriptionEn: service.descriptionEn,
-              durationMinutes: service.durationMinutes ?? 30,
-              isPriceRange: service.isPriceRange,
-              price: service.price ?? 0,
-              minPrice: service.minPrice ?? 0,
-              maxPrice: service.maxPrice ?? 0,
-              priceNoteAr: service.priceNoteAr ?? '',
-              priceNoteEn: service.priceNoteEn ?? '',
-              isHomeService: service.isHomeService,
-              isInSalonService: service.isInSalonService,
-              isFeatured: service.isFeatured,
-              isActive: service.isActive,
-            }
+            ...getInitialDefaultValues(),
+            serviceCategoriesId: service.serviceCategoriesId,
+            serviceTypeId: service.serviceTypeId,
+            nameAr: service.nameAr,
+            nameEn: service.nameEn,
+            descriptionAr: service.descriptionAr,
+            descriptionEn: service.descriptionEn,
+            durationMinutes: service.durationMinutes ?? 30,
+            isPriceRange: service.isPriceRange,
+            price: service.price ?? 0,
+            minPrice: service.minPrice ?? 0,
+            maxPrice: service.maxPrice ?? 0,
+            priceNoteAr: service.priceNoteAr ?? '',
+            priceNoteEn: service.priceNoteEn ?? '',
+            isHomeService: service.isHomeService,
+            isInSalonService: service.isInSalonService,
+            isFeatured: service.isFeatured,
+            isActive: service.isActive,
+          }
           : getInitialDefaultValues()
       )
     }
@@ -399,12 +489,21 @@ export default function ServiceFormModal({
 
     try {
       if (isEdit && service) {
-        await updateService({ id: service.id, ...servicePayload }).unwrap()
+        await updateService({
+          id: service.id,
+          codeKey: service.codeKey,
+          sortOrder: service.sortOrder,
+          ...servicePayload,
+        }).unwrap()
         toast.success(t('common.success'))
         onClose()
       } else {
         // 1. Create the new service
-        const newServiceId = await createService(servicePayload as any).unwrap()
+        const newServiceId = await createService({
+          codeKey: '',
+          sortOrder: 0,
+          ...servicePayload,
+        }).unwrap()
 
         // 2. Determine targeted branches
         let targetBranchIds: number[] = []
@@ -420,9 +519,11 @@ export default function ServiceFormModal({
 
         const [y, m, d] = (fromDateStr || '').split('-').map(Number)
 
-        // 4. Create schedule requests for each targeted branch
+        // 4. Create schedule requests for each targeted branch —
+        //    each branch sends its OWN chair (and that chair's quantity)
         const schedulePromises = targetBranchIds.map((branchId) => {
           const branch = branches.find((b) => b.id === branchId)
+          const chairSelection = values.branchChairs[String(branchId)]
 
           let resolvedTimeFrom = '09:00:00'
           let resolvedTimeTo = '21:00:00'
@@ -451,13 +552,16 @@ export default function ServiceFormModal({
             depositDuration: values.requiredDesposit ? values.depositDuration : 0,
             serviceDuration: values.serviceDuration,
             howManyInDay: null,
-            howManyInPeriod: values.allChairs ? 999 : values.howManyInPeriod,
+            chairId: chairSelection?.chairId,
+            howManyInPeriod: chairSelection?.howManyInPeriod ?? 1,
             canCancelBefore: values.canCancelBefore,
             requiredSalonApproved: values.requiredSalonApproved,
-            freeScheduleTimes: values.freeScheduleTimes.map((slot) => ({
-              timeFrom: formatTime(slot.timeFrom),
-              toTime: formatTime(slot.toTime),
-            })),
+            freeScheduleTimes: hasBreaks
+              ? values.freeScheduleTimes.map((slot) => ({
+                timeFrom: formatTime(slot.timeFrom),
+                toTime: formatTime(slot.toTime),
+              }))
+              : [],
           }
 
           return createSchedule(schedulePayload as any).unwrap()
@@ -484,6 +588,10 @@ export default function ServiceFormModal({
     { number: 2, label: isAr ? 'الفروع والمواعيد' : 'Branches & Timing' },
     { number: 3, label: isAr ? 'إعدادات متقدمة' : 'Advanced Settings' },
   ]
+
+  const currentChairSelection = chairBranchId ? branchChairs[String(chairBranchId)] : undefined
+  const chairFieldError =
+    chairBranchId && (errors.branchChairs as any)?.[String(chairBranchId)]?.chairId?.message
 
   return (
     <Modal
@@ -602,16 +710,11 @@ export default function ServiceFormModal({
                 required
               />
               <Select
+                key={`serviceType-${selectedCategoryId}-${serviceTypeOptions.length}`}
                 {...register('serviceTypeId')}
                 label={t('service.serviceType', 'Service Type')}
                 options={serviceTypeOptions}
-                placeholder={
-                  !selectedCategoryId || Number(selectedCategoryId) === 0
-                    ? t('service.selectCategoryFirst', 'Select a category first')
-                    : isLoadingTypes
-                      ? t('common.loading', 'Loading…')
-                      : t('service.selectServiceType', 'Select a type')
-                }
+                placeholder={t('service.selectServiceType', 'Select a type')}
                 error={errors.serviceTypeId?.message}
                 disabled={!selectedCategoryId || Number(selectedCategoryId) === 0 || isLoadingTypes}
                 required
@@ -677,17 +780,18 @@ export default function ServiceFormModal({
                 <span className="text-sm font-medium text-[var(--text-primary)]">
                   {t('service.pricing', 'Pricing')}
                 </span>
-                <Controller
-                  name="isPriceRange"
-                  control={control}
-                  render={({ field }) => (
-                    <Toggle
-                      checked={field.value}
-                      onChange={field.onChange}
-                      label={t('service.isPriceRange', 'Price Range')}
-                    />
-                  )}
-                />
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-[var(--text-muted)]">
+                    {t('service.isPriceRange', 'Price Range')}
+                  </span>
+                  <Controller
+                    name="isPriceRange"
+                    control={control}
+                    render={({ field }) => (
+                      <YesNoToggle checked={field.value} onChange={field.onChange} lang={lang} />
+                    )}
+                  />
+                </div>
               </div>
 
               {!isPriceRange ? (
@@ -758,7 +862,7 @@ export default function ServiceFormModal({
                   render={({ field }) => (
                     <div className="flex flex-col gap-1.5 rounded-[var(--radius-md)] border border-[var(--border)] p-3 bg-[var(--surface)]">
                       <span className="text-xs text-[var(--text-muted)]">{label}</span>
-                      <Toggle checked={field.value} onChange={field.onChange} />
+                      <YesNoToggle checked={field.value} onChange={field.onChange} lang={lang} />
                     </div>
                   )}
                 />
@@ -775,7 +879,7 @@ export default function ServiceFormModal({
               <div className="flex items-center justify-between">
                 <div className="flex flex-col gap-0.5">
                   <span className="text-sm font-semibold text-[var(--text-primary)]">
-                    {isAr ? 'متاح في كل الفروع؟' : 'Available in All Branches?'}
+                    {isAr ? 'هل تقدم الخدمة في جميع الفروع ؟' : 'Available in All Branches?'}
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
                     {allBranches
@@ -787,7 +891,7 @@ export default function ServiceFormModal({
                   name="allBranches"
                   control={control}
                   render={({ field }) => (
-                    <Toggle checked={field.value} onChange={field.onChange} />
+                    <YesNoToggle checked={field.value} onChange={field.onChange} lang={lang} />
                   )}
                 />
               </div>
@@ -818,7 +922,7 @@ export default function ServiceFormModal({
               <div className="flex items-center justify-between">
                 <div className="flex flex-col gap-0.5">
                   <span className="text-sm font-semibold text-[var(--text-primary)]">
-                    {isAr ? 'متاح طول الشهر (30 يوم من اليوم)؟' : 'Available All Month (30 days)?'}
+                    {isAr ? 'متاح تقديم الخدمة طول الشهر (30 يوم من اليوم)؟' : 'Available All Month (30 days)?'}
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
                     {allMonth
@@ -830,7 +934,7 @@ export default function ServiceFormModal({
                   name="allMonth"
                   control={control}
                   render={({ field }) => (
-                    <Toggle checked={field.value} onChange={field.onChange} />
+                    <YesNoToggle checked={field.value} onChange={field.onChange} lang={lang} />
                   )}
                 />
               </div>
@@ -879,7 +983,7 @@ export default function ServiceFormModal({
               <div className="flex items-center justify-between">
                 <div className="flex flex-col gap-0.5">
                   <span className="text-sm font-semibold text-[var(--text-primary)]">
-                    {isAr ? 'متاح طوال اليوم (ساعات العمل الرسمية للفروع)؟' : 'Available All Day (Branch opening hours)?'}
+                    {isAr ? 'متاح تقديم الخدمة طوال اليوم (ساعات العمل الرسمية للفروع)؟' : 'Available All Day (Branch opening hours)?'}
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
                     {availableAllDay
@@ -891,7 +995,7 @@ export default function ServiceFormModal({
                   name="availableAllDay"
                   control={control}
                   render={({ field }) => (
-                    <Toggle checked={field.value} onChange={field.onChange} />
+                    <YesNoToggle checked={field.value} onChange={field.onChange} lang={lang} />
                   )}
                 />
               </div>
@@ -951,40 +1055,126 @@ export default function ServiceFormModal({
               />
             </div>
 
-            {/* Chairs availability */}
+            {/* Chairs — assigned PER BRANCH */}
             <div className="rounded-[var(--radius-lg)] border border-[var(--border)] p-4 flex flex-col gap-4 bg-[var(--surface-raised)]/20">
-              <div className="flex items-center justify-between">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-sm font-semibold text-[var(--text-primary)]">
-                    {isAr ? 'متاح لكل الكراسي / المقاعد؟' : 'Available for all Chairs / Seats?'}
-                  </span>
-                  <span className="text-xs text-[var(--text-muted)]">
-                    {allChairs
-                      ? (isAr ? 'الخدمة متاحة على جميع كراسي الصالون بالتوازي' : 'All chairs/seats can be booked simultaneously')
-                      : (isAr ? 'تحديد حد أقصى لعدد الكراسي المتاحة في نفس الوقت' : 'Limit maximum concurrent chairs')}
-                  </span>
-                </div>
-                <Controller
-                  name="allChairs"
-                  control={control}
-                  render={({ field }) => (
-                    <Toggle checked={field.value} onChange={field.onChange} />
-                  )}
-                />
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-semibold text-[var(--text-primary)]">
+                  {isAr ? 'كراسي الفروع' : 'Branch Chairs'}
+                </span>
+                <span className="text-xs text-[var(--text-muted)]">
+                  {isAr
+                    ? 'كل فرع لازم يكون له كرسي مخصص. اختر الفرع ثم الكرسي الخاص به.'
+                    : 'Every branch needs its own assigned chair. Pick a branch, then choose its chair.'}
+                </span>
               </div>
 
-              {!allChairs && (
-                <div className="animate-fade-in">
-                  <Input
-                    {...register('howManyInPeriod')}
-                    type="number"
-                    min={1}
-                    label={isAr ? 'عدد الكراسي المتاحة' : 'Number of Chairs'}
-                    error={errors.howManyInPeriod?.message}
-                    required
-                  />
+              {/* Assignment status badges */}
+              {chairBranchOptions.length > 1 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {chairBranchOptions.map((b) => {
+                    const assigned = Boolean(branchChairs[String(b.id)]?.chairId)
+                    return (
+                      <button
+                        type="button"
+                        key={b.id}
+                        onClick={() => setChairBranchId(b.id)}
+                        className={cn(
+                          'px-2 py-1 rounded-full text-[11px] font-medium border transition-colors',
+                          chairBranchId === b.id
+                            ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+                            : assigned
+                              ? 'bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/30'
+                              : 'bg-[var(--bg-hover)] text-[var(--text-muted)] border-[var(--border)]'
+                        )}
+                      >
+                        {assigned ? '✓ ' : ''}
+                        {lang === 'ar' ? b.nameAr : b.nameEn}
+                      </button>
+                    )
+                  })}
                 </div>
               )}
+
+              {/* Branch picker (only useful when there's more than one branch) */}
+              {chairBranchOptions.length > 1 && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-[var(--text-secondary)]">
+                    {isAr ? 'عرض كراسي الفرع' : 'Viewing chairs for branch'}
+                  </label>
+                  <select
+                    value={chairBranchId ?? ''}
+                    onChange={(e) => setChairBranchId(Number(e.target.value))}
+                    className="h-10 px-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent transition-all w-full"
+                  >
+                    {chairBranchOptions.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {lang === 'ar' ? b.nameAr : b.nameEn}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-[var(--text-primary)]">
+                  {isAr ? 'كرسي الفرع' : 'Branch Chair'} <span className="text-[var(--danger)]">*</span>
+                </label>
+                {!chairBranchId ? (
+                  <p className="text-xs text-[var(--text-muted)]">
+                    {isAr ? 'اختر فرعاً أولاً لعرض كراسيه' : 'Select a branch first to view its chairs'}
+                  </p>
+                ) : isLoadingChairs ? (
+                  <p className="text-xs text-[var(--text-muted)] animate-pulse">
+                    {t('common.loading', 'Loading…')}
+                  </p>
+                ) : chairs.length === 0 ? (
+                  <p className="text-xs text-[var(--text-muted)]">
+                    {isAr ? 'لا توجد كراسي مضافة لهذا الفرع' : 'No chairs added for this branch'}
+                  </p>
+                ) : (
+                  <Controller
+                    control={control}
+                    name={`branchChairs.${chairBranchId}.chairId` as any}
+                    render={({ field }) => (
+                      <select
+                        value={field.value || ''}
+                        onChange={(e) => {
+                          const chairId = Number(e.target.value)
+                          field.onChange(chairId)
+                          const selectedChair = chairs.find((c) => c.id === chairId)
+                          if (selectedChair) {
+                            setValue(
+                              `branchChairs.${chairBranchId}.howManyInPeriod` as any,
+                              selectedChair.quantity
+                            )
+                          }
+                        }}
+                        className="h-10 px-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent transition-all w-full"
+                      >
+                        <option value="">{isAr ? 'اختر الكرسي...' : 'Select a chair...'}</option>
+                        {chairs.map((chair) => (
+                          <option key={chair.id} value={chair.id}>
+                            {lang === 'ar'
+                              ? `${chair.chairTypeNameAr} (${t('service.quantity', 'Quantity')}: ${chair.quantity})`
+                              : `${chair.chairTypeNameEn} (Qty: ${chair.quantity})`}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  />
+                )}
+                {chairFieldError && (
+                  <p className="text-xs text-[var(--danger)]">{chairFieldError as string}</p>
+                )}
+                {currentChairSelection?.chairId ? (
+                  <p className="text-xs text-[var(--text-muted)]">
+                    {isAr ? 'العدد المتاح في هذه الفترة' : 'Available quantity for this slot'}:{' '}
+                    <span className="font-medium text-[var(--text-primary)]">
+                      {currentChairSelection.howManyInPeriod}
+                    </span>
+                  </p>
+                ) : null}
+              </div>
             </div>
 
             {/* Toggles (Approval and Deposit) */}
@@ -999,7 +1189,7 @@ export default function ServiceFormModal({
                         {isAr ? 'يتطلب موافقة الصالون' : 'Requires Salon Approval'}
                       </span>
                     </div>
-                    <Toggle checked={field.value} onChange={field.onChange} />
+                    <YesNoToggle checked={field.value} onChange={field.onChange} lang={lang} />
                   </div>
                 )}
               />
@@ -1013,7 +1203,7 @@ export default function ServiceFormModal({
                     control={control}
                     name="requiredDesposit"
                     render={({ field }) => (
-                      <Toggle checked={field.value} onChange={field.onChange} />
+                      <YesNoToggle checked={field.value} onChange={field.onChange} lang={lang} />
                     )}
                   />
                 </div>
@@ -1040,61 +1230,81 @@ export default function ServiceFormModal({
             </div>
 
             {/* Free Schedule Times (Breaks) */}
-            <div className="rounded-[var(--radius-lg)] border border-[var(--border)] p-4 flex flex-col gap-3 bg-[var(--surface-raised)]/10">
+            <div className="rounded-[var(--radius-lg)] border border-[var(--border)] p-4 flex flex-col gap-4 bg-[var(--surface-raised)]/20">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-[var(--text-primary)]">
-                  {isAr ? 'فترات الراحة / البريك (أوقات غير متاحة للحجز)' : 'Break Times (Blocked-out slots)'}
+                  {isAr ? 'هل هناك فترات راحة لا تقدم فيها الخدمة؟' : 'Are there break times where the service is not provided?'}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => append({ timeFrom: { hour: 12, minute: 0 }, toTime: { hour: 13, minute: 0 } })}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-[var(--accent)] hover:text-[var(--accent-hover)] transition-colors"
-                >
-                  <HiPlus size={14} />
-                  {isAr ? 'إضافة بريك' : 'Add Break'}
-                </button>
+                <YesNoToggle
+                  checked={hasBreaks}
+                  onChange={(val) => {
+                    setHasBreaks(val)
+                    if (!val) {
+                      setValue('freeScheduleTimes', [])
+                    }
+                  }}
+                  lang={lang}
+                />
               </div>
 
-              <div className="flex flex-col gap-3">
-                {fields.length === 0 && (
-                  <p className="text-xs text-[var(--text-muted)] text-center py-5 border border-dashed border-[var(--border)] rounded-lg">
-                    {isAr ? 'لا توجد فترات راحة مضافة حالياً' : 'No break slots added yet'}
-                  </p>
-                )}
-                {fields.map((field, idx) => (
-                  <div key={field.id} className="grid grid-cols-[1fr_1fr_auto] gap-3 items-end p-3 rounded-xl bg-[var(--surface)] border border-[var(--border)] animate-fade-in">
-                    <Controller
-                      control={control}
-                      name={`freeScheduleTimes.${idx}.timeFrom`}
-                      render={({ field: f }) => (
-                        <TimePicker
-                          value={f.value}
-                          onChange={f.onChange}
-                          label={isAr ? 'من' : 'From'}
-                        />
-                      )}
-                    />
-                    <Controller
-                      control={control}
-                      name={`freeScheduleTimes.${idx}.toTime`}
-                      render={({ field: f }) => (
-                        <TimePicker
-                          value={f.value}
-                          onChange={f.onChange}
-                          label={isAr ? 'إلى' : 'To'}
-                        />
-                      )}
-                    />
+              {hasBreaks && (
+                <div className="flex flex-col gap-3 mt-2 border-t border-[var(--border)] pt-3 animate-fade-in">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-[var(--text-primary)]">
+                      {isAr ? 'فترات الراحة / البريك (أوقات غير متاحة للحجز)' : 'Break Times (Blocked-out slots)'}
+                    </span>
                     <button
                       type="button"
-                      onClick={() => remove(idx)}
-                      className="h-10 w-9 flex items-center justify-center rounded-lg text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors mb-0.5"
+                      onClick={() => append({ timeFrom: { hour: 12, minute: 0 }, toTime: { hour: 13, minute: 0 } })}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-[var(--accent)] hover:text-[var(--accent-hover)] transition-colors"
                     >
-                      <HiTrash size={15} />
+                      <HiPlus size={14} />
+                      {isAr ? 'إضافة بريك' : 'Add Break'}
                     </button>
                   </div>
-                ))}
-              </div>
+
+                  <div className="flex flex-col gap-3">
+                    {fields.length === 0 && (
+                      <p className="text-xs text-[var(--text-muted)] text-center py-5 border border-dashed border-[var(--border)] rounded-lg">
+                        {isAr ? 'لا توجد فترات راحة مضافة حالياً' : 'No break slots added yet'}
+                      </p>
+                    )}
+                    {fields.map((field, idx) => (
+                      <div key={field.id} className="grid grid-cols-[1fr_1fr_auto] gap-3 items-end p-3 rounded-xl bg-[var(--surface)] border border-[var(--border)] animate-fade-in">
+                        <Controller
+                          control={control}
+                          name={`freeScheduleTimes.${idx}.timeFrom`}
+                          render={({ field: f }) => (
+                            <TimePicker
+                              value={f.value}
+                              onChange={f.onChange}
+                              label={isAr ? 'من' : 'From'}
+                            />
+                          )}
+                        />
+                        <Controller
+                          control={control}
+                          name={`freeScheduleTimes.${idx}.toTime`}
+                          render={({ field: f }) => (
+                            <TimePicker
+                              value={f.value}
+                              onChange={f.onChange}
+                              label={isAr ? 'إلى' : 'To'}
+                            />
+                          )}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => remove(idx)}
+                          className="h-10 w-9 flex items-center justify-center rounded-lg text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors mb-0.5"
+                        >
+                          <HiTrash size={15} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
