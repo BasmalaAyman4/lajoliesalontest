@@ -51,6 +51,7 @@ const en = {
     salonReels:"Salon Reels",
     salonAppointments:"Salon Appointments",
     howToUse:"How To Use",
+    branchChairs:"Branch Chair",
 
   },
 schedule: {
@@ -423,6 +424,7 @@ const ar = {
     salonReels:"ريلز الصالون",
     salonAppointments:"مواعيد الصالون",
     howToUse:"كيف تستخدم",
+    branchChairs:"كراسي الصالون",
 
   },
  schedule: {

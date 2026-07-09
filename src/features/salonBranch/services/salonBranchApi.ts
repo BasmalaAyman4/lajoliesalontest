@@ -6,7 +6,7 @@
 //  DELETE /api/salon/Branch/:id     → void
 
 import { api } from '@/services/api'
-import type { SalonBranch, CreateBranchRequest, UpdateBranchRequest } from '../types'
+import type { SalonBranch, CreateBranchRequest, UpdateBranchRequest, BranchChair } from '../types'
 
 export const salonBranchApi = api.injectEndpoints({
   endpoints: (builder) => ({
@@ -56,6 +56,8 @@ export const salonBranchApi = api.injectEndpoints({
         { type: 'SalonBranch', id: 'LIST' },
       ],
     }),
+
+   
   }),
   overrideExisting: false,
 })

@@ -98,7 +98,25 @@ export const salonServiceApi = api.injectEndpoints({
         { type: 'Dropdown', id: `SERVICE_TYPES_CAT_${serviceCategoryId}` },
       ],
     }),
-  }),
+
+   // ── GET max chair count for a branch + service type ─────────────────────────
+getMaxChairCountForService: builder.query<
+  {
+    branchId: number
+    serviceTypeId: number
+    chairTypeId: number
+    chairTypeName: string
+    maxChairCount: number
+  },
+  { branchId: number; serviceTypeId: number }
+>({
+  query: ({ branchId, serviceTypeId }) =>
+    `/api/salon/BasicData/getMaxChairCountForService?branchId=${branchId}&salonServiceId=${serviceTypeId}`,
+  providesTags: (_result, _error, { branchId, serviceTypeId }) => [
+    { type: 'Dropdown', id: `MAX_CHAIR_${branchId}_${serviceTypeId}` },
+  ],
+}),
+}),
   overrideExisting: false,
 })
 
@@ -110,4 +128,6 @@ export const {
   useUploadServiceImageMutation,
   useGetServiceCategoryDropdownQuery,
   useGetServiceTypeByCategoryDropdownQuery,
+    useGetMaxChairCountForServiceQuery,
+
 } = salonServiceApi

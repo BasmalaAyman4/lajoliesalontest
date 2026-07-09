@@ -20,6 +20,7 @@ import SalonAppointmentPage from '@/features/salonAppointment/pages/SalonAppoint
 import HowToUsePage from '@/features/howToUse/pages/HowToUsePage'
 import ForgetPasswordPage from '@/features/auth/pages/ForgotPasswordPage'
 import ResetPasswordPage from '@/features/auth/pages/ResetPasswordPage'
+import BranchChairPage from '@/features/BranchChair/pages/BranchChairPage'
 
 // ── Guards ─────────────────────────────────────────────────────────────────────
 
@@ -60,6 +61,7 @@ const router = createBrowserRouter([
           { path: 'salon-images', element: <SalonImagesPage /> },
           { path: 'salon-specialists', element: <SalonSpecialistPage /> },
           { path: 'salon-branches', element: <SalonBranchPage /> },
+          { path: 'salon-branch-chairs', element: <BranchChairPage /> },
           { path: 'salon-services', element: <SalonServicesPage /> },
           { path: 'manage-salon-user', element: <ManageSalonUserPage /> },
           { path: 'service-discount', element: <ServiceDiscountPage /> },

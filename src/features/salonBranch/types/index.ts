@@ -35,3 +35,12 @@ openTime: string   // "HH:mm:ss"
 export interface UpdateBranchRequest extends CreateBranchRequest {
   id: number
 }
+export interface BranchChair {
+  id: number
+  salonBranchId: number
+  chairTypeId: number
+  chairTypeNameAr: string
+  chairTypeNameEn: string
+  quantity: number
+  isActive: boolean
+}
