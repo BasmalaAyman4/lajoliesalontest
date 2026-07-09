@@ -20,8 +20,9 @@ import type { DropdownOption } from '@/types'
 import {
     useCreateSalonScheduleMutation,
     useGetSalonServiceDropdownQuery,
+    useLazyGetMaxChairCountForServiceQuery
 } from '../services/salonScheduleApi'
-import { useGetSalonBranchesQuery, useGetBranchChairsQuery } from '@/features/salonBranch/services/salonBranchApi'
+import { useGetSalonBranchesQuery } from '@/features/salonBranch/services/salonBranchApi'
 import { HiCalendar, HiPlus, HiTrash, HiChevronLeft, HiChevronRight, HiLightningBolt } from 'react-icons/hi'
 import { cn } from '@/lib/cn'
 
@@ -142,18 +143,6 @@ const getSchema = (allBranchIds: number[]) =>
             }
         }
 
-        // Every targeted branch must have its own chair assigned
-        const targetIds = data.allBranches ? allBranchIds : data.selectedBranchIds
-        targetIds.forEach((branchId) => {
-            const sel = data.branchChairs[String(branchId)]
-            if (!sel || !sel.chairId) {
-                ctx.addIssue({
-                    code: 'custom',
-                    path: ['branchChairs', String(branchId), 'chairId'],
-                    message: 'A chair is required for this branch',
-                })
-            }
-        })
     })
 
 type FormValues = z.infer<typeof baseSchema>
@@ -236,37 +225,15 @@ export default function ScheduleQuickAddModal({ open, onClose }: ScheduleQuickAd
     const availableAllDay = watch('availableAllDay')
     const requiredDesposit = watch('requiredDesposit')
     const branchChairs = watch('branchChairs')
+const selectedServiceTypeId = watch('salonServiceId')
 
-    // Branches that will actually receive a schedule = need a chair each
-    const chairBranchOptions = useMemo(() => {
-        if (!allBranches && selectedBranchIds?.length > 0) {
-            return branches.filter((b) => selectedBranchIds.includes(b.id))
-        }
-        return branches
-    }, [allBranches, selectedBranchIds, branches])
-
-    const [chairBranchId, setChairBranchId] = useState<number | undefined>(undefined)
-
-    useEffect(() => {
-        if (chairBranchOptions.length === 0) {
-            setChairBranchId(undefined)
-            return
-        }
-        setChairBranchId((prev) =>
-            prev && chairBranchOptions.some((b) => b.id === prev) ? prev : chairBranchOptions[0].id
-        )
-    }, [chairBranchOptions])
-
-    const { data: chairs = [], isFetching: isLoadingChairs } = useGetBranchChairsQuery(chairBranchId!, {
-        skip: !chairBranchId || !open,
-    })
+    const [getChairCount] = useLazyGetMaxChairCountForServiceQuery()
 
     // Reset on open
     useEffect(() => {
         if (open) {
             setStep(1)
             setHasBreaks(false)
-            setChairBranchId(undefined)
             reset(getInitialDefaultValues())
         }
     }, [open, reset])
@@ -290,13 +257,34 @@ export default function ScheduleQuickAddModal({ open, onClose }: ScheduleQuickAd
         try {
             const targetBranchIds = values.allBranches ? branches.map((b) => b.id) : values.selectedBranchIds
 
+            const branchChairDataResults = await Promise.all(
+                targetBranchIds.map(async (branchId) => {
+                    const branch = branches.find((b) => b.id === branchId)
+                    try {
+                        const chairData = await getChairCount({ branchId, serviceTypeId: values.salonServiceId }).unwrap()
+                        return { branchId, branch, chairData, isValid: !!(chairData && chairData.chairTypeId && chairData.maxChairCount > 0) }
+                    } catch (e) {
+                        return { branchId, branch, chairData: null, isValid: false }
+                    }
+                })
+            )
+
+            const invalidBranches = branchChairDataResults.filter(r => !r.isValid).map(r => r.branch)
+
+            if (invalidBranches.length > 0) {
+                const branchNamesStr = invalidBranches.map(b => isAr ? b?.nameAr : b?.nameEn).join(' ، ')
+                const errMsg = isAr 
+                    ? `الخدمة دي ملهاش كراسي في الفروع التالية: ${branchNamesStr}. ضيف كراسي للفرع الأول يا إما تختار الفروع اللي ليها كراسي للخدمة دي.`
+                    : `This service has no chairs in the following branches: ${branchNamesStr}. Please add chairs to the branch first or select branches that have chairs for this service.`
+                toast.error(errMsg)
+                return
+            }
+
             const fromDateStr = values.allMonth ? toISODate(new Date()) : values.fromDate
             const toDateStr = values.allMonth ? getThirtyDaysFromToday() : values.toDate
             const [y, m, d] = (fromDateStr || '').split('-').map(Number)
 
-            const schedulePromises = targetBranchIds.map((branchId) => {
-                const branch = branches.find((b) => b.id === branchId)
-                const chairSelection = values.branchChairs[String(branchId)]
+            const schedulePromises = branchChairDataResults.map(async ({ branchId, branch, chairData }) => {
 
                 let resolvedTimeFrom = '09:00:00'
                 let resolvedTimeTo = '21:00:00'
@@ -325,8 +313,8 @@ export default function ScheduleQuickAddModal({ open, onClose }: ScheduleQuickAd
                     depositDuration: values.requiredDesposit ? values.depositDuration : 0,
                     serviceDuration: values.serviceDuration,
                     howManyInDay: null,
-                    chairId: chairSelection?.chairId,
-                    howManyInPeriod: chairSelection?.howManyInPeriod ?? 1,
+                    chairId: chairData?.chairTypeId,
+                    howManyInPeriod: chairData?.maxChairCount ?? 1,
                     canCancelBefore: values.canCancelBefore,
                     requiredSalonApproved: values.requiredSalonApproved,
                     freeScheduleTimes: hasBreaks
@@ -352,8 +340,6 @@ export default function ScheduleQuickAddModal({ open, onClose }: ScheduleQuickAd
         }
     }
 
-    const currentChairSelection = chairBranchId ? branchChairs[String(chairBranchId)] : undefined
-    const chairFieldError = chairBranchId && (errors.branchChairs as any)?.[String(chairBranchId)]?.chairId?.message
 
     return (
         <Modal
@@ -581,106 +567,7 @@ export default function ScheduleQuickAddModal({ open, onClose }: ScheduleQuickAd
                             <Input {...register('canCancelBefore')} type="number" label={isAr ? 'إمكانية إلغاء الحجز قبلها بـ (ساعة)' : 'Can Cancel Before (hours)'} error={errors.canCancelBefore?.message} required />
                         </div>
 
-                        {/* Chairs per branch */}
-                        <div className="rounded-[var(--radius-lg)] border border-[var(--border)] p-4 flex flex-col gap-4 bg-[var(--surface-raised)]/20">
-                            <div className="flex flex-col gap-0.5">
-                                <span className="text-sm font-semibold text-[var(--text-primary)]">
-                                    {isAr ? 'كراسي الفروع' : 'Branch Chairs'}
-                                </span>
-                                <span className="text-xs text-[var(--text-muted)]">
-                                    {isAr ? 'كل فرع لازم يكون له كرسي مخصص.' : 'Every branch needs its own assigned chair.'}
-                                </span>
-                            </div>
 
-                            {chairBranchOptions.length > 1 && (
-                                <div className="flex flex-wrap gap-1.5">
-                                    {chairBranchOptions.map((b) => {
-                                        const assigned = Boolean(branchChairs[String(b.id)]?.chairId)
-                                        return (
-                                            <button
-                                                type="button"
-                                                key={b.id}
-                                                onClick={() => setChairBranchId(b.id)}
-                                                className={cn(
-                                                    'px-2 py-1 rounded-full text-[11px] font-medium border transition-colors',
-                                                    chairBranchId === b.id
-                                                        ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
-                                                        : assigned
-                                                            ? 'bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/30'
-                                                            : 'bg-[var(--bg-hover)] text-[var(--text-muted)] border-[var(--border)]'
-                                                )}
-                                            >
-                                                {assigned ? '✓ ' : ''}
-                                                {lang === 'ar' ? b.nameAr : b.nameEn}
-                                            </button>
-                                        )
-                                    })}
-                                </div>
-                            )}
-
-                            {chairBranchOptions.length > 1 && (
-                                <div className="flex flex-col gap-1.5">
-                                    <label className="text-xs font-semibold text-[var(--text-secondary)]">
-                                        {isAr ? 'عرض كراسي الفرع' : 'Viewing chairs for branch'}
-                                    </label>
-                                    <select
-                                        value={chairBranchId ?? ''}
-                                        onChange={(e) => setChairBranchId(Number(e.target.value))}
-                                        className="h-10 px-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent transition-all w-full"
-                                    >
-                                        {chairBranchOptions.map((b) => (
-                                            <option key={b.id} value={b.id}>{lang === 'ar' ? b.nameAr : b.nameEn}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            )}
-
-                            <div className="flex flex-col gap-1.5">
-                                <label className="text-sm font-semibold text-[var(--text-primary)]">
-                                    {isAr ? 'كرسي الفرع' : 'Branch Chair'} <span className="text-[var(--danger)]">*</span>
-                                </label>
-                                {!chairBranchId ? (
-                                    <p className="text-xs text-[var(--text-muted)]">{isAr ? 'اختر فرعاً أولاً لعرض كراسيه' : 'Select a branch first'}</p>
-                                ) : isLoadingChairs ? (
-                                    <p className="text-xs text-[var(--text-muted)] animate-pulse">{t('common.loading', 'Loading…')}</p>
-                                ) : chairs.length === 0 ? (
-                                    <p className="text-xs text-[var(--text-muted)]">{isAr ? 'لا توجد كراسي مضافة لهذا الفرع' : 'No chairs added for this branch'}</p>
-                                ) : (
-                                    <Controller
-                                        control={control}
-                                        name={`branchChairs.${chairBranchId}.chairId` as any}
-                                        render={({ field }) => (
-                                            <select
-                                                value={field.value || ''}
-                                                onChange={(e) => {
-                                                    const chairId = Number(e.target.value)
-                                                    field.onChange(chairId)
-                                                    const selectedChair = chairs.find((c) => c.id === chairId)
-                                                    if (selectedChair) {
-                                                        setValue(`branchChairs.${chairBranchId}.howManyInPeriod` as any, selectedChair.quantity)
-                                                    }
-                                                }}
-                                                className="h-10 px-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent transition-all w-full"
-                                            >
-                                                <option value="">{isAr ? 'اختر الكرسي...' : 'Select a chair...'}</option>
-                                                {chairs.map((chair) => (
-                                                    <option key={chair.id} value={chair.id}>
-                                                        {lang === 'ar' ? `${chair.chairTypeNameAr} (الكمية: ${chair.quantity})` : `${chair.chairTypeNameEn} (Qty: ${chair.quantity})`}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        )}
-                                    />
-                                )}
-                                {chairFieldError && <p className="text-xs text-[var(--danger)]">{chairFieldError as string}</p>}
-                                {currentChairSelection?.chairId ? (
-                                    <p className="text-xs text-[var(--text-muted)]">
-                                        {isAr ? 'العدد المتاح في هذه الفترة' : 'Available quantity for this slot'}:{' '}
-                                        <span className="font-medium text-[var(--text-primary)]">{currentChairSelection.howManyInPeriod}</span>
-                                    </p>
-                                ) : null}
-                            </div>
-                        </div>
 
                         {/* Approval / Deposit */}
                         <div className="flex flex-col gap-4 py-1">

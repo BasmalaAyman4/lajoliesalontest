@@ -82,6 +82,25 @@ getBranchDropdown: builder.query<DropdownItem[], void>({
   ],
   keepUnusedDataFor: 0,   // ← don't cache when modal is closed
 }),
+
+
+ // ── GET max chair count for a branch + service type ─────────────────────────
+getMaxChairCountForService: builder.query<
+  {
+    branchId: number
+    serviceTypeId: number
+    chairTypeId: number
+    chairTypeName: string
+    maxChairCount: number
+  },
+  { branchId: number; serviceTypeId: number }
+>({
+  query: ({ branchId, serviceTypeId }) =>
+    `/api/salon/BasicData/getMaxChairCountForService?branchId=${branchId}&salonServiceId=${serviceTypeId}`,
+  providesTags: (_result, _error, { branchId, serviceTypeId }) => [
+    { type: 'Dropdown', id: `MAX_CHAIR_${branchId}_${serviceTypeId}` },
+  ],
+}),
   }),
   overrideExisting: false,
 })
@@ -93,4 +112,7 @@ export const {
   useDeleteSalonScheduleMutation,
   useGetSalonServiceDropdownQuery,
   useGetBranchDropdownQuery,
+      useGetMaxChairCountForServiceQuery,
+      useLazyGetMaxChairCountForServiceQuery,
+
 } = salonScheduleApi

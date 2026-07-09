@@ -582,8 +582,8 @@ export default function SalonSchedulePage() {
         schedule={formModal.schedule}
         defaultDate={formModal.defaultDate}
       />
-+     <ScheduleQuickAddModal open={quickAddOpen} onClose={() => setQuickAddOpen(false)} />
-
+     <ScheduleQuickAddModal open={quickAddOpen} onClose={() => setQuickAddOpen(false)} />
+ 
       {/* Delete / Play confirm modal */}
       <ConfirmModal
         open={deleteModal.open}

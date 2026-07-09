@@ -25,11 +25,13 @@ import {
   useUpdateSalonServiceMutation,
   useGetServiceCategoryDropdownQuery,
   useGetServiceTypeByCategoryDropdownQuery,
+  useLazyGetMaxChairCountForServiceQuery,
 } from '../services/salonServiceApi'
-import { useGetSalonBranchesQuery, useGetBranchChairsQuery } from '@/features/salonBranch/services/salonBranchApi'
+import { useGetSalonBranchesQuery } from '@/features/salonBranch/services/salonBranchApi'
 import { useCreateSalonScheduleMutation } from '@/features/salonSchedule/services/salonScheduleApi'
 import { HiCalendar, HiPlus, HiTrash, HiChevronLeft, HiChevronRight } from 'react-icons/hi'
 import { cn } from '@/lib/cn'
+import { getApiError } from '@/services/apiHelpers'
 
 // ── Yes/No Toggle wrapper ───────────────────────────────────────────────────────
 //  Wraps the shared <Toggle> with "No / Yes" (or "لا / نعم") labels on either
@@ -204,21 +206,8 @@ const getSchema = (isEdit: boolean, allBranchIds: number[]) =>
       }
     }
 
-    // Every targeted branch must have its own chair assigned
-    if (!isEdit) {
-      const targetIds = data.allBranches ? allBranchIds : data.selectedBranchIds
-      targetIds.forEach((branchId) => {
-        const sel = data.branchChairs[String(branchId)]
-        if (!sel || !sel.chairId) {
-          ctx.addIssue({
-            code: 'custom',
-            path: ['branchChairs', String(branchId), 'chairId'],
-            message: 'A chair is required for this branch',
-          })
-        }
-      })
-    }
-  })
+  }
+)
 
 type FormValues = z.infer<typeof baseSchema>
 
@@ -334,37 +323,10 @@ export default function ServiceFormModal({
   const availableAllDay = watch('availableAllDay')
   const requiredDesposit = watch('requiredDesposit')
   const branchChairs = watch('branchChairs')
+const selectedServiceTypeId = watch('serviceTypeId')
 
-  // ── Chair branch selection ───────────────────────────────────────────────────
-  //  The list of branches a chair must be assigned to = whatever will actually
-  //  get a schedule created: the picked branches, or ALL branches if that toggle is on.
-  const chairBranchOptions = useMemo(() => {
-    if (!allBranches && selectedBranchIds && selectedBranchIds.length > 0) {
-      return branches.filter((b) => selectedBranchIds.includes(b.id))
-    }
-    return branches
-  }, [allBranches, selectedBranchIds, branches])
 
-  // Which branch's chairs are currently being viewed/edited in Step 3
-  const [chairBranchId, setChairBranchId] = useState<number | undefined>(undefined)
-
-  // Keep chairBranchId valid whenever the candidate branch list changes
-  // (e.g. user goes back to Step 2 and changes the selected branches)
-  useEffect(() => {
-    if (chairBranchOptions.length === 0) {
-      setChairBranchId(undefined)
-      return
-    }
-    setChairBranchId((prev) =>
-      prev && chairBranchOptions.some((b) => b.id === prev) ? prev : chairBranchOptions[0].id
-    )
-  }, [chairBranchOptions])
-
-  // Chairs list for whichever branch is currently being viewed
-  const { data: chairs = [], isFetching: isLoadingChairs } = useGetBranchChairsQuery(
-    chairBranchId!,
-    { skip: !chairBranchId || !open }
-  )
+  const [getChairCount] = useLazyGetMaxChairCountForServiceQuery()
 
   // ── Dropdown queries ────────────────────────────────────────────────────────
   const { data: categories = [] } = useGetServiceCategoryDropdownQuery(undefined, { skip: !open })
@@ -396,7 +358,6 @@ export default function ServiceFormModal({
     if (open) {
       setStep(1)
       setHasBreaks(false)
-      setChairBranchId(undefined)
       reset(
         service
           ? {
@@ -498,14 +459,7 @@ export default function ServiceFormModal({
         toast.success(t('common.success'))
         onClose()
       } else {
-        // 1. Create the new service
-        const newServiceId = await createService({
-          codeKey: '',
-          sortOrder: 0,
-          ...servicePayload,
-        }).unwrap()
-
-        // 2. Determine targeted branches
+        // 1. Determine targeted branches
         let targetBranchIds: number[] = []
         if (values.allBranches) {
           targetBranchIds = branches.map((b) => b.id)
@@ -513,17 +467,45 @@ export default function ServiceFormModal({
           targetBranchIds = values.selectedBranchIds
         }
 
-        // 3. Resolve dates
+        // 2. PRE-VALIDATION: Check if all targeted branches have chairs
+        const branchChairDataResults = await Promise.all(
+            targetBranchIds.map(async (branchId) => {
+                const branch = branches.find((b) => b.id === branchId)
+                try {
+                    const chairData = await getChairCount({ branchId, serviceTypeId: Number(values.serviceTypeId) }).unwrap()
+                    return { branchId, branch, chairData, isValid: !!(chairData && chairData.chairTypeId && chairData.maxChairCount > 0) }
+                } catch (e) {
+                    return { branchId, branch, chairData: null, isValid: false }
+                }
+            })
+        )
+
+        const invalidBranches = branchChairDataResults.filter(r => !r.isValid).map(r => r.branch)
+
+        if (invalidBranches.length > 0) {
+            const branchNamesStr = invalidBranches.map(b => isAr ? b?.nameAr : b?.nameEn).join(' ، ')
+            const errMsg = isAr 
+                ? `الخدمة دي ملهاش كراسي في الفروع التالية: ${branchNamesStr}. ضيف كراسي للفرع الأول يا إما تختار الفروع اللي ليها كراسي للخدمة دي.`
+                : `This service has no chairs in the following branches: ${branchNamesStr}. Please add chairs to the branch first or select branches that have chairs for this service.`
+            toast.error(errMsg)
+            return
+        }
+
+        // 3. Create the new service
+        const newServiceId = await createService({
+          codeKey: '',
+          sortOrder: 0,
+          ...servicePayload,
+        }).unwrap()
+
+        // 4. Resolve dates
         const fromDateStr = values.allMonth ? toISODate(new Date()) : values.fromDate
         const toDateStr = values.allMonth ? getThirtyDaysFromToday() : values.toDate
 
         const [y, m, d] = (fromDateStr || '').split('-').map(Number)
 
-        // 4. Create schedule requests for each targeted branch —
-        //    each branch sends its OWN chair (and that chair's quantity)
-        const schedulePromises = targetBranchIds.map((branchId) => {
-          const branch = branches.find((b) => b.id === branchId)
-          const chairSelection = values.branchChairs[String(branchId)]
+        // 5. Create schedule requests for each targeted branch
+        const schedulePromises = branchChairDataResults.map(async ({ branchId, branch, chairData }) => {
 
           let resolvedTimeFrom = '09:00:00'
           let resolvedTimeTo = '21:00:00'
@@ -552,8 +534,8 @@ export default function ServiceFormModal({
             depositDuration: values.requiredDesposit ? values.depositDuration : 0,
             serviceDuration: values.serviceDuration,
             howManyInDay: null,
-            chairId: chairSelection?.chairId,
-            howManyInPeriod: chairSelection?.howManyInPeriod ?? 1,
+            chairId: chairData?.chairTypeId,
+            howManyInPeriod: chairData?.maxChairCount ?? 1,
             canCancelBefore: values.canCancelBefore,
             requiredSalonApproved: values.requiredSalonApproved,
             freeScheduleTimes: hasBreaks
@@ -576,8 +558,7 @@ export default function ServiceFormModal({
         onCreated?.(newServiceId, values.nameEn)
       }
     } catch (err) {
-      console.error(err)
-      toast.error(t('common.error'))
+      toast.error(getApiError(err, t('common.error')))
     }
   }
 
@@ -589,9 +570,6 @@ export default function ServiceFormModal({
     { number: 3, label: isAr ? 'إعدادات متقدمة' : 'Advanced Settings' },
   ]
 
-  const currentChairSelection = chairBranchId ? branchChairs[String(chairBranchId)] : undefined
-  const chairFieldError =
-    chairBranchId && (errors.branchChairs as any)?.[String(chairBranchId)]?.chairId?.message
 
   return (
     <Modal
@@ -761,18 +739,7 @@ export default function ServiceFormModal({
               />
             </div>
 
-            {/* Duration */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Input
-                {...register('durationMinutes')}
-                label={t('service.durationservice', 'Average Duration (minutes)')}
-                type="number"
-                min={1}
-                placeholder="e.g. 30"
-                error={errors.durationMinutes?.message}
-                required
-              />
-            </div>
+           
 
             {/* Pricing */}
             <div className="rounded-[var(--radius-lg)] border border-[var(--border)] p-4 flex flex-col gap-4">
@@ -1037,7 +1004,6 @@ export default function ServiceFormModal({
         {/* STEP 3: Advanced Schedule Details & Break times */}
         {!isEdit && step === 3 && (
           <div className="flex flex-col gap-5 animate-fade-in">
-            {/* Core Schedule durations */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
                 {...register('serviceDuration')}
@@ -1055,127 +1021,7 @@ export default function ServiceFormModal({
               />
             </div>
 
-            {/* Chairs — assigned PER BRANCH */}
-            <div className="rounded-[var(--radius-lg)] border border-[var(--border)] p-4 flex flex-col gap-4 bg-[var(--surface-raised)]/20">
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-semibold text-[var(--text-primary)]">
-                  {isAr ? 'كراسي الفروع' : 'Branch Chairs'}
-                </span>
-                <span className="text-xs text-[var(--text-muted)]">
-                  {isAr
-                    ? 'كل فرع لازم يكون له كرسي مخصص. اختر الفرع ثم الكرسي الخاص به.'
-                    : 'Every branch needs its own assigned chair. Pick a branch, then choose its chair.'}
-                </span>
-              </div>
 
-              {/* Assignment status badges */}
-              {chairBranchOptions.length > 1 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {chairBranchOptions.map((b) => {
-                    const assigned = Boolean(branchChairs[String(b.id)]?.chairId)
-                    return (
-                      <button
-                        type="button"
-                        key={b.id}
-                        onClick={() => setChairBranchId(b.id)}
-                        className={cn(
-                          'px-2 py-1 rounded-full text-[11px] font-medium border transition-colors',
-                          chairBranchId === b.id
-                            ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
-                            : assigned
-                              ? 'bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/30'
-                              : 'bg-[var(--bg-hover)] text-[var(--text-muted)] border-[var(--border)]'
-                        )}
-                      >
-                        {assigned ? '✓ ' : ''}
-                        {lang === 'ar' ? b.nameAr : b.nameEn}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-
-              {/* Branch picker (only useful when there's more than one branch) */}
-              {chairBranchOptions.length > 1 && (
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-[var(--text-secondary)]">
-                    {isAr ? 'عرض كراسي الفرع' : 'Viewing chairs for branch'}
-                  </label>
-                  <select
-                    value={chairBranchId ?? ''}
-                    onChange={(e) => setChairBranchId(Number(e.target.value))}
-                    className="h-10 px-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent transition-all w-full"
-                  >
-                    {chairBranchOptions.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {lang === 'ar' ? b.nameAr : b.nameEn}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-semibold text-[var(--text-primary)]">
-                  {isAr ? 'كرسي الفرع' : 'Branch Chair'} <span className="text-[var(--danger)]">*</span>
-                </label>
-                {!chairBranchId ? (
-                  <p className="text-xs text-[var(--text-muted)]">
-                    {isAr ? 'اختر فرعاً أولاً لعرض كراسيه' : 'Select a branch first to view its chairs'}
-                  </p>
-                ) : isLoadingChairs ? (
-                  <p className="text-xs text-[var(--text-muted)] animate-pulse">
-                    {t('common.loading', 'Loading…')}
-                  </p>
-                ) : chairs.length === 0 ? (
-                  <p className="text-xs text-[var(--text-muted)]">
-                    {isAr ? 'لا توجد كراسي مضافة لهذا الفرع' : 'No chairs added for this branch'}
-                  </p>
-                ) : (
-                  <Controller
-                    control={control}
-                    name={`branchChairs.${chairBranchId}.chairId` as any}
-                    render={({ field }) => (
-                      <select
-                        value={field.value || ''}
-                        onChange={(e) => {
-                          const chairId = Number(e.target.value)
-                          field.onChange(chairId)
-                          const selectedChair = chairs.find((c) => c.id === chairId)
-                          if (selectedChair) {
-                            setValue(
-                              `branchChairs.${chairBranchId}.howManyInPeriod` as any,
-                              selectedChair.quantity
-                            )
-                          }
-                        }}
-                        className="h-10 px-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent transition-all w-full"
-                      >
-                        <option value="">{isAr ? 'اختر الكرسي...' : 'Select a chair...'}</option>
-                        {chairs.map((chair) => (
-                          <option key={chair.id} value={chair.id}>
-                            {lang === 'ar'
-                              ? `${chair.chairTypeNameAr} (${t('service.quantity', 'Quantity')}: ${chair.quantity})`
-                              : `${chair.chairTypeNameEn} (Qty: ${chair.quantity})`}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  />
-                )}
-                {chairFieldError && (
-                  <p className="text-xs text-[var(--danger)]">{chairFieldError as string}</p>
-                )}
-                {currentChairSelection?.chairId ? (
-                  <p className="text-xs text-[var(--text-muted)]">
-                    {isAr ? 'العدد المتاح في هذه الفترة' : 'Available quantity for this slot'}:{' '}
-                    <span className="font-medium text-[var(--text-primary)]">
-                      {currentChairSelection.howManyInPeriod}
-                    </span>
-                  </p>
-                ) : null}
-              </div>
-            </div>
 
             {/* Toggles (Approval and Deposit) */}
             <div className="flex flex-col gap-4 py-1">
