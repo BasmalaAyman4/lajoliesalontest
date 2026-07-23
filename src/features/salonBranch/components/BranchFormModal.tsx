@@ -36,9 +36,10 @@ const formatTime = (time: { hour: number; minute: number }): string =>
   `${pad(time.hour)}:${pad(time.minute)}:00`
 
 /** "HH:mm:ss" → { hour, minute } — for populating the form when editing */
-const parseTime = (str: string): { hour: number; minute: number } => {
+const parseTime = (str: string | null | undefined, fallbackHour: number = 0): { hour: number; minute: number } => {
+  if (!str) return { hour: fallbackHour, minute: 0 }
   const [h, m] = str.split(':').map(Number)
-  return { hour: h ?? 0, minute: m ?? 0 }
+  return { hour: h ?? fallbackHour, minute: m ?? 0 }
 }
 
 // ── Schema ────────────────────────────────────────────────────────────────────
@@ -166,8 +167,8 @@ export default function BranchFormModal({
           latitude: branchDetail.lat,
           longitude: branchDetail.long,
         },
-        openTime: parseTime(branchDetail.openTime),
-        closeTime: parseTime(branchDetail.closeTime),
+        openTime: parseTime(branchDetail.openTime, 9),
+        closeTime: parseTime(branchDetail.closeTime, 21),
         chairs:
           branchDetail.chairs.length > 0
             ? branchDetail.chairs.map((c) => ({
