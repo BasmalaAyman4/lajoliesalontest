@@ -71,6 +71,6 @@ const baseQueryWithReauth: BaseQueryFn<
 export const api = createApi({
   reducerPath: 'api',
   baseQuery: baseQueryWithReauth,
-  tagTypes: ['Schedule', 'Dropdown', 'SalonData', 'SalonImage', 'SalonSpecialist', 'SalonBranch', 'SalonService', 'SalonUser', 'ServiceDiscount', 'SalonSchedule', 'SalonReel', 'SalonAppointment','HowToUse','ChairTypeDropdown','BranchDropdown','BranchChair'],
+  tagTypes: ['Schedule', 'Dropdown', 'SalonData', 'SalonImage', 'SalonSpecialist', 'SalonBranch', 'SalonService', 'SalonUser', 'ServiceDiscount', 'SalonSchedule', 'SalonReel', 'SalonAppointment','HowToUse','ChairTypeDropdown','BranchDropdown'],
   endpoints: () => ({}),
 })

@@ -25,12 +25,13 @@ import {
   useUpdateSalonServiceMutation,
   useGetServiceCategoryDropdownQuery,
   useGetServiceTypeByCategoryDropdownQuery,
-  useGetMaxChairCountForServiceQuery,
+  useLazyGetMaxChairCountForServiceQuery,
 } from '../services/salonServiceApi'
 import { useGetSalonBranchesQuery } from '@/features/salonBranch/services/salonBranchApi'
 import { useCreateSalonScheduleMutation } from '@/features/salonSchedule/services/salonScheduleApi'
 import { HiCalendar, HiPlus, HiTrash, HiChevronLeft, HiChevronRight } from 'react-icons/hi'
 import { cn } from '@/lib/cn'
+import { getApiError } from '@/services/apiHelpers'
 
 // ── Yes/No Toggle wrapper ───────────────────────────────────────────────────────
 //  Wraps the shared <Toggle> with "No / Yes" (or "لا / نعم") labels on either
@@ -205,21 +206,8 @@ const getSchema = (isEdit: boolean, allBranchIds: number[]) =>
       }
     }
 
-    // Every targeted branch must have its own chair assigned
-    if (!isEdit) {
-      const targetIds = data.allBranches ? allBranchIds : data.selectedBranchIds
-      targetIds.forEach((branchId) => {
-        const sel = data.branchChairs[String(branchId)]
-        if (!sel || !sel.chairId) {
-          ctx.addIssue({
-            code: 'custom',
-            path: ['branchChairs', String(branchId), 'chairId'],
-            message: 'A chair is required for this branch',
-          })
-        }
-      })
-    }
-  })
+  }
+)
 
 type FormValues = z.infer<typeof baseSchema>
 
@@ -290,6 +278,10 @@ export default function ServiceFormModal({
 
   const [step, setStep] = useState(1)
   const [hasBreaks, setHasBreaks] = useState(false)
+  const [createdServiceId, setCreatedServiceId] = useState<number | null>(null)
+  const [branchChairsData, setBranchChairsData] = useState<any[]>([])
+  const [isStep1Loading, setIsStep1Loading] = useState(false)
+  const [isStep2Loading, setIsStep2Loading] = useState(false)
 
   const [createService, { isLoading: isCreating }] = useCreateSalonServiceMutation()
   const [updateService, { isLoading: isUpdating }] = useUpdateSalonServiceMutation()
@@ -338,46 +330,7 @@ export default function ServiceFormModal({
 const selectedServiceTypeId = watch('serviceTypeId')
 
 
-  // ── Chair branch selection ───────────────────────────────────────────────────
-  //  The list of branches a chair must be assigned to = whatever will actually
-  //  get a schedule created: the picked branches, or ALL branches if that toggle is on.
-  const chairBranchOptions = useMemo(() => {
-    if (!allBranches && selectedBranchIds && selectedBranchIds.length > 0) {
-      return branches.filter((b) => selectedBranchIds.includes(b.id))
-    }
-    return branches
-  }, [allBranches, selectedBranchIds, branches])
-
-  // Which branch's chairs are currently being viewed/edited in Step 3
-  const [chairBranchId, setChairBranchId] = useState<number | undefined>(undefined)
-
-  // Keep chairBranchId valid whenever the candidate branch list changes
-  // (e.g. user goes back to Step 2 and changes the selected branches)
-  useEffect(() => {
-    if (chairBranchOptions.length === 0) {
-      setChairBranchId(undefined)
-      return
-    }
-    setChairBranchId((prev) =>
-      prev && chairBranchOptions.some((b) => b.id === prev) ? prev : chairBranchOptions[0].id
-    )
-  }, [chairBranchOptions])
-
-  // Chairs list for whichever branch is currently being viewed
-const { data: maxChairData, isFetching: isLoadingChairs } = useGetMaxChairCountForServiceQuery(
-  { branchId: chairBranchId!, serviceTypeId: Number(selectedServiceTypeId) },
-  { skip: !chairBranchId || !selectedServiceTypeId || Number(selectedServiceTypeId) === 0 || !open }
-)
-// جوه useEffect لما maxChairData يترجع، حدّث الفورم تلقائيًا
-useEffect(() => {
-  if (chairBranchId && maxChairData) {
-    setValue(`branchChairs.${chairBranchId}.chairId` as any, maxChairData.chairTypeId)
-    setValue(
-      `branchChairs.${chairBranchId}.howManyInPeriod` as any,
-      maxChairData.maxChairCount
-    )
-  }
-}, [chairBranchId, maxChairData, setValue])
+  const [getChairCount] = useLazyGetMaxChairCountForServiceQuery()
 
   // ── Dropdown queries ────────────────────────────────────────────────────────
   const { data: categories = [] } = useGetServiceCategoryDropdownQuery(undefined, { skip: !open })
@@ -409,7 +362,10 @@ useEffect(() => {
     if (open) {
       setStep(1)
       setHasBreaks(false)
-      setChairBranchId(undefined)
+      setCreatedServiceId(null)
+      setBranchChairsData([])
+      setIsStep1Loading(false)
+      setIsStep2Loading(false)
       reset(
         service
           ? {
@@ -454,8 +410,53 @@ useEffect(() => {
       'priceNoteAr',
       'priceNoteEn',
     ])
-    if (isValid) {
+    if (!isValid) return
+
+    setIsStep1Loading(true)
+    try {
+      const values = watch()
+      const servicePayload = {
+        serviceCategoriesId: values.serviceCategoriesId,
+        serviceTypeId: values.serviceTypeId,
+        nameAr: values.nameAr,
+        nameEn: values.nameEn,
+        descriptionAr: values.descriptionAr,
+        descriptionEn: values.descriptionEn,
+        durationMinutes: values.durationMinutes,
+        isPriceRange: values.isPriceRange,
+        price: values.isPriceRange ? undefined : values.price,
+        minPrice: values.isPriceRange ? values.minPrice : undefined,
+        maxPrice: values.isPriceRange ? values.maxPrice : undefined,
+        priceNoteAr: values.isPriceRange ? values.priceNoteAr : undefined,
+        priceNoteEn: values.isPriceRange ? values.priceNoteEn : undefined,
+        isHomeService: values.isHomeService,
+        isInSalonService: values.isInSalonService,
+        isFeatured: values.isFeatured,
+        isActive: values.isActive,
+      }
+
+      if (createdServiceId) {
+        // Update existing service since it's already created
+        await updateService({
+          id: createdServiceId,
+          codeKey: '',
+          sortOrder: 0,
+          ...servicePayload,
+        }).unwrap()
+      } else {
+        // Create new service
+        const newServiceId = await createService({
+          codeKey: '',
+          sortOrder: 0,
+          ...servicePayload,
+        }).unwrap()
+        setCreatedServiceId(newServiceId)
+      }
       setStep(2)
+    } catch (err) {
+      toast.error(getApiError(err, t('common.error')))
+    } finally {
+      setIsStep1Loading(false)
     }
   }
 
@@ -470,38 +471,99 @@ useEffect(() => {
       'timeFrom',
       'timeTo',
     ])
-    if (isValid) {
+    if (!isValid) return
+
+    setIsStep2Loading(true)
+    try {
+      const values = watch()
+      let targetBranchIds: number[] = []
+      if (values.allBranches) {
+        targetBranchIds = branches.map((b) => b.id)
+      } else {
+        targetBranchIds = values.selectedBranchIds
+      }
+
+      if (targetBranchIds.length === 0) {
+        toast.error(isAr ? 'برجاء اختيار فرع واحد على الأقل.' : 'Please select at least one branch.')
+        return
+      }
+
+      if (!createdServiceId) {
+        toast.error(isAr ? 'حدث خطأ، برجاء إعادة المحاولة.' : 'An error occurred, please try again.')
+        return
+      }
+
+      // Check if all targeted branches have chairs
+      const branchChairDataResults = await Promise.all(
+        targetBranchIds.map(async (branchId) => {
+          const branch = branches.find((b) => b.id === branchId)
+          try {
+            const chairData = await getChairCount({
+              branchId,
+              serviceTypeId: createdServiceId,
+            }).unwrap()
+            return {
+              branchId,
+              branch,
+              chairData,
+              isValid: !!(chairData && chairData.chairTypeId && chairData.maxChairCount > 0),
+            }
+          } catch (e) {
+            return { branchId, branch, chairData: null, isValid: false }
+          }
+        })
+      )
+
+      const invalidBranches = branchChairDataResults.filter((r) => !r.isValid).map((r) => r.branch)
+
+      if (invalidBranches.length > 0) {
+        const branchNamesStr = invalidBranches
+          .map((b) => (isAr ? b?.nameAr : b?.nameEn))
+          .join(' ، ')
+        const errMsg = isAr
+          ? `الخدمة دي ملهاش كراسي في الفروع التالية: ${branchNamesStr}. ضيف كراسي للفرع الأول يا إما تختار الفروع اللي ليها كراسي للخدمة دي.`
+          : `This service has no chairs in the following branches: ${branchNamesStr}. Please add chairs to the branch first or select branches that have chairs for this service.`
+        toast.error(errMsg)
+        return
+      }
+
+      setBranchChairsData(branchChairDataResults)
+
       // Pre-populate service duration in step 3 from step 1 duration Minutes
-      const duration = watch('durationMinutes')
+      const duration = values.durationMinutes
       setValue('serviceDuration', duration)
       setStep(3)
+    } catch (err) {
+      toast.error(getApiError(err, t('common.error')))
+    } finally {
+      setIsStep2Loading(false)
     }
   }
 
   // ── Submit ──────────────────────────────────────────────────────────────────
   const onSubmit = async (values: FormValues) => {
-    const servicePayload = {
-      serviceCategoriesId: values.serviceCategoriesId,
-      serviceTypeId: values.serviceTypeId,
-      nameAr: values.nameAr,
-      nameEn: values.nameEn,
-      descriptionAr: values.descriptionAr,
-      descriptionEn: values.descriptionEn,
-      durationMinutes: values.durationMinutes,
-      isPriceRange: values.isPriceRange,
-      price: values.isPriceRange ? undefined : values.price,
-      minPrice: values.isPriceRange ? values.minPrice : undefined,
-      maxPrice: values.isPriceRange ? values.maxPrice : undefined,
-      priceNoteAr: values.isPriceRange ? values.priceNoteAr : undefined,
-      priceNoteEn: values.isPriceRange ? values.priceNoteEn : undefined,
-      isHomeService: values.isHomeService,
-      isInSalonService: values.isInSalonService,
-      isFeatured: values.isFeatured,
-      isActive: values.isActive,
-    }
-
     try {
       if (isEdit && service) {
+        const servicePayload = {
+          serviceCategoriesId: values.serviceCategoriesId,
+          serviceTypeId: values.serviceTypeId,
+          nameAr: values.nameAr,
+          nameEn: values.nameEn,
+          descriptionAr: values.descriptionAr,
+          descriptionEn: values.descriptionEn,
+          durationMinutes: values.durationMinutes,
+          isPriceRange: values.isPriceRange,
+          price: values.isPriceRange ? undefined : values.price,
+          minPrice: values.isPriceRange ? values.minPrice : undefined,
+          maxPrice: values.isPriceRange ? values.maxPrice : undefined,
+          priceNoteAr: values.isPriceRange ? values.priceNoteAr : undefined,
+          priceNoteEn: values.isPriceRange ? values.priceNoteEn : undefined,
+          isHomeService: values.isHomeService,
+          isInSalonService: values.isInSalonService,
+          isFeatured: values.isFeatured,
+          isActive: values.isActive,
+        }
+
         await updateService({
           id: service.id,
           codeKey: service.codeKey,
@@ -511,33 +573,20 @@ useEffect(() => {
         toast.success(t('common.success'))
         onClose()
       } else {
-        // 1. Create the new service
-        const newServiceId = await createService({
-          codeKey: '',
-          sortOrder: 0,
-          ...servicePayload,
-        }).unwrap()
-
-        // 2. Determine targeted branches
-        let targetBranchIds: number[] = []
-        if (values.allBranches) {
-          targetBranchIds = branches.map((b) => b.id)
-        } else {
-          targetBranchIds = values.selectedBranchIds
+        // Create Mode - Service is already created and chairs are validated in Step 2.
+        if (!createdServiceId) {
+          toast.error(isAr ? 'يجب إنشاء الخدمة أولاً' : 'Service must be created first')
+          return
         }
 
-        // 3. Resolve dates
+        // 1. Resolve dates
         const fromDateStr = values.allMonth ? toISODate(new Date()) : values.fromDate
         const toDateStr = values.allMonth ? getThirtyDaysFromToday() : values.toDate
 
         const [y, m, d] = (fromDateStr || '').split('-').map(Number)
 
-        // 4. Create schedule requests for each targeted branch —
-        //    each branch sends its OWN chair (and that chair's quantity)
-        const schedulePromises = targetBranchIds.map((branchId) => {
-          const branch = branches.find((b) => b.id === branchId)
-          const chairSelection = values.branchChairs[String(branchId)]
-
+        // 2. Create schedule requests for each targeted branch using cached chair data
+        const schedulePromises = branchChairsData.map(async ({ branchId, branch, chairData }) => {
           let resolvedTimeFrom = '09:00:00'
           let resolvedTimeTo = '21:00:00'
 
@@ -550,7 +599,7 @@ useEffect(() => {
           }
 
           const schedulePayload = {
-            salonServiceId: newServiceId,
+            salonServiceId: createdServiceId,
             branchId,
             applyAllThisMonth: false,
             fromDate: fromDateStr,
@@ -565,8 +614,8 @@ useEffect(() => {
             depositDuration: values.requiredDesposit ? values.depositDuration : 0,
             serviceDuration: values.serviceDuration,
             howManyInDay: null,
-            chairId: chairSelection?.chairId,
-            howManyInPeriod: chairSelection?.howManyInPeriod ?? 1,
+            chairId: chairData?.chairTypeId,
+            howManyInPeriod: chairData?.maxChairCount ?? 1,
             canCancelBefore: values.canCancelBefore,
             requiredSalonApproved: values.requiredSalonApproved,
             freeScheduleTimes: hasBreaks
@@ -580,17 +629,16 @@ useEffect(() => {
           return createSchedule(schedulePayload as any).unwrap()
         })
 
-        if (targetBranchIds.length > 0) {
+        if (branchChairsData.length > 0) {
           await Promise.all(schedulePromises)
         }
 
         toast.success(t('common.success'))
         onClose()
-        onCreated?.(newServiceId, values.nameEn)
+        onCreated?.(createdServiceId, values.nameEn)
       }
     } catch (err) {
-      console.error(err)
-      toast.error(t('common.error'))
+      toast.error(getApiError(err, t('common.error')))
     }
   }
 
@@ -602,9 +650,6 @@ useEffect(() => {
     { number: 3, label: isAr ? 'إعدادات متقدمة' : 'Advanced Settings' },
   ]
 
-  const currentChairSelection = chairBranchId ? branchChairs[String(chairBranchId)] : undefined
-  const chairFieldError =
-    chairBranchId && (errors.branchChairs as any)?.[String(chairBranchId)]?.chairId?.message
 
   return (
     <Modal
@@ -635,27 +680,45 @@ useEffect(() => {
             <>
               {step === 1 && (
                 <>
-                  <Button variant="secondary" onClick={onClose} disabled={isLoading}>
+                  <Button variant="secondary" onClick={onClose} disabled={isLoading || isStep1Loading}>
                     {t('common.cancel')}
                   </Button>
-                  <Button onClick={nextStep1} rightIcon={isAr ? <HiChevronLeft size={15} /> : <HiChevronRight size={15} />}>
+                  <Button
+                    onClick={nextStep1}
+                    loading={isStep1Loading}
+                    rightIcon={isAr ? <HiChevronLeft size={15} /> : <HiChevronRight size={15} />}
+                  >
                     {isAr ? 'التالي' : 'Next'}
                   </Button>
                 </>
               )}
               {step === 2 && (
                 <>
-                  <Button variant="secondary" onClick={() => setStep(1)} leftIcon={isAr ? <HiChevronRight size={15} /> : <HiChevronLeft size={15} />}>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setStep(1)}
+                    disabled={isStep2Loading}
+                    leftIcon={isAr ? <HiChevronRight size={15} /> : <HiChevronLeft size={15} />}
+                  >
                     {isAr ? 'السابق' : 'Back'}
                   </Button>
-                  <Button onClick={nextStep2} rightIcon={isAr ? <HiChevronLeft size={15} /> : <HiChevronRight size={15} />}>
+                  <Button
+                    onClick={nextStep2}
+                    loading={isStep2Loading}
+                    rightIcon={isAr ? <HiChevronLeft size={15} /> : <HiChevronRight size={15} />}
+                  >
                     {isAr ? 'التالي' : 'Next'}
                   </Button>
                 </>
               )}
               {step === 3 && (
                 <>
-                  <Button variant="secondary" onClick={() => setStep(2)} leftIcon={isAr ? <HiChevronRight size={15} /> : <HiChevronLeft size={15} />}>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setStep(2)}
+                    disabled={isLoading}
+                    leftIcon={isAr ? <HiChevronRight size={15} /> : <HiChevronLeft size={15} />}
+                  >
                     {isAr ? 'السابق' : 'Back'}
                   </Button>
                   <Button onClick={handleSubmit(onSubmit)} loading={isLoading}>
@@ -1056,76 +1119,7 @@ useEffect(() => {
               />
             </div>
 
-            {/* Chairs — assigned PER BRANCH */}
-          <div className="rounded-[var(--radius-lg)] border border-[var(--border)] p-4 flex flex-col gap-4 bg-[var(--surface-raised)]/20">
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-semibold text-[var(--text-primary)]">
-                  {isAr ? 'كراسي الفروع' : 'Branch Chairs'}
-                </span>
-                <span className="text-xs text-[var(--text-muted)]">
-                  {isAr
-                    ? 'كل فرع لازم يكون له كرسي مخصص. اختر الفرع ثم الكرسي الخاص به.'
-                    : 'Every branch needs its own assigned chair. Pick a branch, then choose its chair.'}
-                </span>
-              </div>
 
-              {chairBranchOptions.length > 1 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {chairBranchOptions.map((b) => {
-                    const assigned = Boolean(branchChairs[String(b.id)]?.chairId)
-                    return (
-                      <button
-                        type="button"
-                        key={b.id}
-                        onClick={() => setChairBranchId(b.id)}
-                        className={cn(
-                          'px-2 py-1 rounded-full text-[11px] font-medium border transition-colors',
-                          chairBranchId === b.id
-                            ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
-                            : assigned
-                              ? 'bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/30'
-                              : 'bg-[var(--bg-hover)] text-[var(--text-muted)] border-[var(--border)]'
-                        )}
-                      >
-                        {assigned ? '✓ ' : ''}
-                        {lang === 'ar' ? b.nameAr : b.nameEn}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-
-              {chairBranchOptions.length > 1 && (
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-[var(--text-secondary)]">
-                    {isAr ? 'عرض كراسي الفرع' : 'Viewing chairs for branch'}
-                  </label>
-                  <select
-                    value={chairBranchId ?? ''}
-                    onChange={(e) => setChairBranchId(Number(e.target.value))}
-                    className="h-10 px-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent transition-all w-full"
-                  >
-                    {chairBranchOptions.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {lang === 'ar' ? b.nameAr : b.nameEn}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div className="flex flex-col gap-1.5">
-                
-                {currentChairSelection?.chairId ? (
-                  <p className="text-xs text-[var(--text-muted)]">
-                    {isAr ? 'العدد المتاح في هذه الفترة' : 'Available quantity for this slot'}:{' '}
-                    <span className="font-medium text-[var(--text-primary)]">
-                      {currentChairSelection.howManyInPeriod}
-                    </span>
-                  </p>
-                ) : null}
-              </div>
-            </div> 
 
             {/* Toggles (Approval and Deposit) */}
             <div className="flex flex-col gap-4 py-1">

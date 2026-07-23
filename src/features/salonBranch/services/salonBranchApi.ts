@@ -1,17 +1,24 @@
 // ─── Salon Branch API ─────────────────────────────────────────────────────────
 //
-//  GET    /api/salon/Branch         → SalonBranch[]
+//  GET    /api/salon/Branch         → SalonBranchListItem[]  (no chairs)
+//  GET    /api/salon/Branch/:id     → SalonBranch             (with chairs)
 //  POST   /api/salon/Branch         → number (new id)
 //  PUT    /api/salon/Branch         → void
 //  DELETE /api/salon/Branch/:id     → void
 
 import { api } from '@/services/api'
-import type { SalonBranch, CreateBranchRequest, UpdateBranchRequest, BranchChair } from '../types'
+import type {
+  SalonBranch,
+  SalonBranchListItem,
+  CreateBranchRequest,
+  UpdateBranchRequest,
+  ChairTypeOption,
+} from '../types'
 
 export const salonBranchApi = api.injectEndpoints({
   endpoints: (builder) => ({
-    // ── GET all branches ────────────────────────────────────────────────────
-    getSalonBranches: builder.query<SalonBranch[], void>({
+    // ── GET all branches (list — no chairs) ─────────────────────────────────
+    getSalonBranches: builder.query<SalonBranchListItem[], void>({
       query: () => '/api/salon/Branch',
       providesTags: (result) =>
         result
@@ -20,6 +27,12 @@ export const salonBranchApi = api.injectEndpoints({
               { type: 'SalonBranch', id: 'LIST' },
             ]
           : [{ type: 'SalonBranch', id: 'LIST' }],
+    }),
+
+    // ── GET single branch by id (detail — includes chairs) ──────────────────
+    getSalonBranchById: builder.query<SalonBranch, number>({
+      query: (id) => `/api/salon/Branch/${id}`,
+      providesTags: (_result, _error, id) => [{ type: 'SalonBranch', id }],
     }),
 
     // ── POST create branch → returns new branch id ──────────────────────────
@@ -57,14 +70,20 @@ export const salonBranchApi = api.injectEndpoints({
       ],
     }),
 
-   
+    // ── GET chair type dropdown ──────────────────────────────────────────────
+    getChairTypeDropdown: builder.query<ChairTypeOption[], void>({
+      query: () => '/api/salon/BasicData/getChairTypeDropdown',
+      providesTags: [{ type: 'ChairType', id: 'LIST' }],
+    }),
   }),
   overrideExisting: false,
 })
 
 export const {
   useGetSalonBranchesQuery,
+  useGetSalonBranchByIdQuery,
   useCreateSalonBranchMutation,
   useUpdateSalonBranchMutation,
   useDeleteSalonBranchMutation,
+  useGetChairTypeDropdownQuery,
 } = salonBranchApi

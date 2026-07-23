@@ -1,7 +1,7 @@
 // ─── Salon Branch Page ────────────────────────────────────────────────────────
 //
 //  Lists all branches in a table.
-//  Add / Edit → BranchFormModal
+//  Add / Edit → BranchFormModal (fetches full detail itself when editing)
 //  Delete → ConfirmModal
 
 import { useState } from 'react'
@@ -14,18 +14,12 @@ import {
   DataTable,
   type Column,
 } from '@/components/shared'
-import type { SalonBranch } from '../types'
+import type { SalonBranchListItem } from '../types'
 import {
   useGetSalonBranchesQuery,
   useDeleteSalonBranchMutation,
 } from '../services/salonBranchApi'
 import BranchFormModal from '../components/BranchFormModal'
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-const pad = (n: number) => String(n).padStart(2, '0')
-
-const formatTime = (time: { hour: number; minute: number }) =>
-  `${pad(time.hour)}:${pad(time.minute)}`
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function SalonBranchPage() {
@@ -36,7 +30,7 @@ export default function SalonBranchPage() {
   const [deleteBranch, { isLoading: isDeleting }] = useDeleteSalonBranchMutation()
 
   // ── Modal state ─────────────────────────────────────────────────────────────
-  const [formModal, setFormModal] = useState<{ open: boolean; branch?: SalonBranch }>({
+  const [formModal, setFormModal] = useState<{ open: boolean; branchId?: number }>({
     open: false,
   })
   const [deleteModal, setDeleteModal] = useState<{ open: boolean; id: number | null }>({
@@ -46,7 +40,7 @@ export default function SalonBranchPage() {
 
   // ── Handlers ────────────────────────────────────────────────────────────────
   const openAdd = () => setFormModal({ open: true })
-  const openEdit = (branch: SalonBranch) => setFormModal({ open: true, branch })
+  const openEdit = (id: number) => setFormModal({ open: true, branchId: id })
   const closeForm = () => setFormModal({ open: false })
 
   const confirmDelete = (id: number) => setDeleteModal({ open: true, id })
@@ -64,23 +58,19 @@ export default function SalonBranchPage() {
   }
 
   // ── Columns ──────────────────────────────────────────────────────────────────
-  const columns: Column<SalonBranch>[] = [
+  const columns: Column<SalonBranchListItem>[] = [
     {
       key: 'nameEn',
       label: t('branch.nameEn', 'Name (EN)'),
       render: (row) => (
-        <div>
-          <p className="font-medium text-[var(--text-primary)]">{row.nameEn}</p>
-        </div>
+        <p className="font-medium text-[var(--text-primary)]">{row.nameEn}</p>
       ),
     },
-     {
+    {
       key: 'nameAr',
       label: t('branch.nameAr', 'Name (Ar)'),
       render: (row) => (
-        <div>
-          <p className="font-medium text-[var(--text-primary)]">{row.nameAr}</p>
-        </div>
+        <p className="font-medium text-[var(--text-primary)]">{row.nameAr}</p>
       ),
     },
     {
@@ -133,11 +123,10 @@ export default function SalonBranchPage() {
       width: '100px',
       render: (row) => (
         <div className="flex items-center justify-end gap-1">
-          {/* Edit */}
           <button
             type="button"
             title={t('common.edit', 'Edit')}
-            onClick={() => openEdit(row)}
+            onClick={() => openEdit(row.id)}
             className="w-8 h-8 rounded-lg flex items-center justify-center
               text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--accent-soft)]
               transition-colors"
@@ -145,7 +134,6 @@ export default function SalonBranchPage() {
             <HiPencil size={15} />
           </button>
 
-          {/* Delete */}
           <button
             type="button"
             title={t('common.delete')}
@@ -161,7 +149,6 @@ export default function SalonBranchPage() {
     },
   ]
 
-  // ── Loading / error ──────────────────────────────────────────────────────────
   if (isError) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -170,11 +157,8 @@ export default function SalonBranchPage() {
     )
   }
 
-  // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col gap-6 animate-fade-in">
-
-      {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-[var(--text-primary)]">
@@ -190,8 +174,7 @@ export default function SalonBranchPage() {
         </Button>
       </div>
 
-      {/* DataTable */}
-      <DataTable<SalonBranch>
+      <DataTable<SalonBranchListItem>
         columns={columns}
         data={branches}
         rowKey="id"
@@ -201,14 +184,12 @@ export default function SalonBranchPage() {
         emptyMessage={t('branch.noBranches', 'No branches found. Add your first one!')}
       />
 
-      {/* Add / Edit modal */}
       <BranchFormModal
         open={formModal.open}
         onClose={closeForm}
-        branch={formModal.branch}
+        branchId={formModal.branchId}
       />
 
-      {/* Delete confirm modal */}
       <ConfirmModal
         open={deleteModal.open}
         onClose={() => setDeleteModal({ open: false, id: null })}

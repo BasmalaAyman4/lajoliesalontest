@@ -113,5 +113,6 @@ export const {
   useGetSalonServiceDropdownQuery,
   useGetBranchDropdownQuery,
       useGetMaxChairCountForServiceQuery,
+      useLazyGetMaxChairCountForServiceQuery,
 
 } = salonScheduleApi

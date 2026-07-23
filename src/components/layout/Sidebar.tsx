@@ -20,7 +20,6 @@ const NAV_ITEMS = [
   { to: '/salon-images', label: 'nav.images', Icon: IoImagesSharp },
   { to: '/salon-branches', label: 'nav.branches', Icon: FaCodeBranch },
 
-  { to: '/salon-branch-chairs', label: 'nav.branchChairs', Icon: FaCodeBranch },
   { to: '/salon-specialists', label: 'nav.specialists', Icon: HiUsers },
   { to: '/salon-services', label: 'nav.services', Icon: MdOutlineDesignServices },
   { to: '/service-discount', label: 'nav.discount', Icon: RiDiscountPercentFill },

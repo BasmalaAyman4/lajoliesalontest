@@ -129,5 +129,6 @@ export const {
   useGetServiceCategoryDropdownQuery,
   useGetServiceTypeByCategoryDropdownQuery,
     useGetMaxChairCountForServiceQuery,
+    useLazyGetMaxChairCountForServiceQuery,
 
 } = salonServiceApi
