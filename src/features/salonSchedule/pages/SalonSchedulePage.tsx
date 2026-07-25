@@ -13,7 +13,8 @@ import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import listPlugin from '@fullcalendar/list'
-import type { EventClickArg, DateClickArg, EventContentArg } from '@fullcalendar/core'
+import type { EventClickArg, EventContentArg } from '@fullcalendar/core'
+import type { DateClickArg } from '@fullcalendar/interaction'
 import { HiPlus, HiPencil, HiTrash, HiCalendar, HiViewList, HiPlay, HiLightningBolt } from 'react-icons/hi'
 import { Button, ConfirmModal, DataTable, type Column } from '@/components/shared'
 import type { SalonSchedule } from '../types'
@@ -496,6 +497,56 @@ export default function SalonSchedulePage() {
             .schedule-calendar .fc-scrollgrid { border-color: var(--border) !important; }
             .schedule-calendar td, .schedule-calendar th { border-color: var(--border) !important; }
             .schedule-calendar .fc-more-link { font-size: 11px; color: var(--accent); font-weight: 500; }
+
+            /* ─── FullCalendar Popover overrides ────────────────────────── */
+            .schedule-calendar .fc-popover {
+              background: var(--surface) !important;
+              border: 1px solid var(--border) !important;
+              box-shadow: var(--shadow-lg) !important;
+              border-radius: 12px !important;
+              z-index: 100 !important;
+            }
+            .schedule-calendar .fc-popover-header {
+              background: #fff !important;
+              border-bottom: 1px solid var(--border) !important;
+              padding: 8px 12px !important;
+              border-top-left-radius: 11px !important;
+              border-top-right-radius: 11px !important;
+            }
+            .schedule-calendar .fc-popover-title {
+              font-size: 13px !important;
+              font-weight: 600 !important;
+              color: var(--text-primary) !important;
+            }
+            .schedule-calendar .fc-popover-close {
+              color: var(--text-muted) !important;
+              opacity: 0.8;
+              transition: opacity 0.15s;
+              cursor: pointer;
+            }
+            .schedule-calendar .fc-popover-close:hover {
+              opacity: 1;
+              color: var(--danger) !important;
+            }
+            .schedule-calendar .fc-popover-body {
+              padding: 8px !important;
+              max-height: 280px !important;
+              overflow-y: auto !important;
+              background-color: #ffff;
+            }
+            .schedule-calendar .fc-popover-body::-webkit-scrollbar {
+              width: 6px;
+            }
+            .schedule-calendar .fc-popover-body::-webkit-scrollbar-track {
+              background: transparent;
+            }
+            .schedule-calendar .fc-popover-body::-webkit-scrollbar-thumb {
+              background: var(--border);
+              border-radius: 3px;
+            }
+            .schedule-calendar .fc-popover-body::-webkit-scrollbar-thumb:hover {
+              background: var(--text-muted);
+            }
             .schedule-calendar .fc-list-event:hover td {
               background: var(--surface-raised) !important;
               cursor: pointer;

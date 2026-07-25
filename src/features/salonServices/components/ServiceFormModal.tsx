@@ -278,6 +278,10 @@ export default function ServiceFormModal({
 
   const [step, setStep] = useState(1)
   const [hasBreaks, setHasBreaks] = useState(false)
+  const [createdServiceId, setCreatedServiceId] = useState<number | null>(null)
+  const [branchChairsData, setBranchChairsData] = useState<any[]>([])
+  const [isStep1Loading, setIsStep1Loading] = useState(false)
+  const [isStep2Loading, setIsStep2Loading] = useState(false)
 
   const [createService, { isLoading: isCreating }] = useCreateSalonServiceMutation()
   const [updateService, { isLoading: isUpdating }] = useUpdateSalonServiceMutation()
@@ -358,6 +362,13 @@ const selectedServiceTypeId = watch('serviceTypeId')
     if (open) {
       setStep(1)
       setHasBreaks(false)
+<<<<<<< HEAD
+=======
+      setCreatedServiceId(null)
+      setBranchChairsData([])
+      setIsStep1Loading(false)
+      setIsStep2Loading(false)
+>>>>>>> db7d5627d13235489168fa0141cb3c553d5fff7a
       reset(
         service
           ? {
@@ -402,8 +413,53 @@ const selectedServiceTypeId = watch('serviceTypeId')
       'priceNoteAr',
       'priceNoteEn',
     ])
-    if (isValid) {
+    if (!isValid) return
+
+    setIsStep1Loading(true)
+    try {
+      const values = watch()
+      const servicePayload = {
+        serviceCategoriesId: values.serviceCategoriesId,
+        serviceTypeId: values.serviceTypeId,
+        nameAr: values.nameAr,
+        nameEn: values.nameEn,
+        descriptionAr: values.descriptionAr,
+        descriptionEn: values.descriptionEn,
+        durationMinutes: values.durationMinutes,
+        isPriceRange: values.isPriceRange,
+        price: values.isPriceRange ? undefined : values.price,
+        minPrice: values.isPriceRange ? values.minPrice : undefined,
+        maxPrice: values.isPriceRange ? values.maxPrice : undefined,
+        priceNoteAr: values.isPriceRange ? values.priceNoteAr : undefined,
+        priceNoteEn: values.isPriceRange ? values.priceNoteEn : undefined,
+        isHomeService: values.isHomeService,
+        isInSalonService: values.isInSalonService,
+        isFeatured: values.isFeatured,
+        isActive: values.isActive,
+      }
+
+      if (createdServiceId) {
+        // Update existing service since it's already created
+        await updateService({
+          id: createdServiceId,
+          codeKey: '',
+          sortOrder: 0,
+          ...servicePayload,
+        }).unwrap()
+      } else {
+        // Create new service
+        const newServiceId = await createService({
+          codeKey: '',
+          sortOrder: 0,
+          ...servicePayload,
+        }).unwrap()
+        setCreatedServiceId(newServiceId)
+      }
       setStep(2)
+    } catch (err) {
+      toast.error(getApiError(err, t('common.error')))
+    } finally {
+      setIsStep1Loading(false)
     }
   }
 
@@ -418,38 +474,99 @@ const selectedServiceTypeId = watch('serviceTypeId')
       'timeFrom',
       'timeTo',
     ])
-    if (isValid) {
+    if (!isValid) return
+
+    setIsStep2Loading(true)
+    try {
+      const values = watch()
+      let targetBranchIds: number[] = []
+      if (values.allBranches) {
+        targetBranchIds = branches.map((b) => b.id)
+      } else {
+        targetBranchIds = values.selectedBranchIds
+      }
+
+      if (targetBranchIds.length === 0) {
+        toast.error(isAr ? 'برجاء اختيار فرع واحد على الأقل.' : 'Please select at least one branch.')
+        return
+      }
+
+      if (!createdServiceId) {
+        toast.error(isAr ? 'حدث خطأ، برجاء إعادة المحاولة.' : 'An error occurred, please try again.')
+        return
+      }
+
+      // Check if all targeted branches have chairs
+      const branchChairDataResults = await Promise.all(
+        targetBranchIds.map(async (branchId) => {
+          const branch = branches.find((b) => b.id === branchId)
+          try {
+            const chairData = await getChairCount({
+              branchId,
+              serviceTypeId: createdServiceId,
+            }).unwrap()
+            return {
+              branchId,
+              branch,
+              chairData,
+              isValid: !!(chairData && chairData.chairTypeId && chairData.maxChairCount > 0),
+            }
+          } catch (e) {
+            return { branchId, branch, chairData: null, isValid: false }
+          }
+        })
+      )
+
+      const invalidBranches = branchChairDataResults.filter((r) => !r.isValid).map((r) => r.branch)
+
+      if (invalidBranches.length > 0) {
+        const branchNamesStr = invalidBranches
+          .map((b) => (isAr ? b?.nameAr : b?.nameEn))
+          .join(' ، ')
+        const errMsg = isAr
+          ? `الخدمة دي ملهاش كراسي في الفروع التالية: ${branchNamesStr}. ضيف كراسي للفرع الأول يا إما تختار الفروع اللي ليها كراسي للخدمة دي.`
+          : `This service has no chairs in the following branches: ${branchNamesStr}. Please add chairs to the branch first or select branches that have chairs for this service.`
+        toast.error(errMsg)
+        return
+      }
+
+      setBranchChairsData(branchChairDataResults)
+
       // Pre-populate service duration in step 3 from step 1 duration Minutes
-      const duration = watch('durationMinutes')
+      const duration = values.durationMinutes
       setValue('serviceDuration', duration)
       setStep(3)
+    } catch (err) {
+      toast.error(getApiError(err, t('common.error')))
+    } finally {
+      setIsStep2Loading(false)
     }
   }
 
   // ── Submit ──────────────────────────────────────────────────────────────────
   const onSubmit = async (values: FormValues) => {
-    const servicePayload = {
-      serviceCategoriesId: values.serviceCategoriesId,
-      serviceTypeId: values.serviceTypeId,
-      nameAr: values.nameAr,
-      nameEn: values.nameEn,
-      descriptionAr: values.descriptionAr,
-      descriptionEn: values.descriptionEn,
-      durationMinutes: values.durationMinutes,
-      isPriceRange: values.isPriceRange,
-      price: values.isPriceRange ? undefined : values.price,
-      minPrice: values.isPriceRange ? values.minPrice : undefined,
-      maxPrice: values.isPriceRange ? values.maxPrice : undefined,
-      priceNoteAr: values.isPriceRange ? values.priceNoteAr : undefined,
-      priceNoteEn: values.isPriceRange ? values.priceNoteEn : undefined,
-      isHomeService: values.isHomeService,
-      isInSalonService: values.isInSalonService,
-      isFeatured: values.isFeatured,
-      isActive: values.isActive,
-    }
-
     try {
       if (isEdit && service) {
+        const servicePayload = {
+          serviceCategoriesId: values.serviceCategoriesId,
+          serviceTypeId: values.serviceTypeId,
+          nameAr: values.nameAr,
+          nameEn: values.nameEn,
+          descriptionAr: values.descriptionAr,
+          descriptionEn: values.descriptionEn,
+          durationMinutes: values.durationMinutes,
+          isPriceRange: values.isPriceRange,
+          price: values.isPriceRange ? undefined : values.price,
+          minPrice: values.isPriceRange ? values.minPrice : undefined,
+          maxPrice: values.isPriceRange ? values.maxPrice : undefined,
+          priceNoteAr: values.isPriceRange ? values.priceNoteAr : undefined,
+          priceNoteEn: values.isPriceRange ? values.priceNoteEn : undefined,
+          isHomeService: values.isHomeService,
+          isInSalonService: values.isInSalonService,
+          isFeatured: values.isFeatured,
+          isActive: values.isActive,
+        }
+
         await updateService({
           id: service.id,
           codeKey: service.codeKey,
@@ -459,6 +576,7 @@ const selectedServiceTypeId = watch('serviceTypeId')
         toast.success(t('common.success'))
         onClose()
       } else {
+<<<<<<< HEAD
         // 1. Determine targeted branches
         let targetBranchIds: number[] = []
         if (values.allBranches) {
@@ -499,14 +617,28 @@ const selectedServiceTypeId = watch('serviceTypeId')
         }).unwrap()
 
         // 4. Resolve dates
+=======
+        // Create Mode - Service is already created and chairs are validated in Step 2.
+        if (!createdServiceId) {
+          toast.error(isAr ? 'يجب إنشاء الخدمة أولاً' : 'Service must be created first')
+          return
+        }
+
+        // 1. Resolve dates
+>>>>>>> db7d5627d13235489168fa0141cb3c553d5fff7a
         const fromDateStr = values.allMonth ? toISODate(new Date()) : values.fromDate
         const toDateStr = values.allMonth ? getThirtyDaysFromToday() : values.toDate
 
         const [y, m, d] = (fromDateStr || '').split('-').map(Number)
 
+<<<<<<< HEAD
         // 5. Create schedule requests for each targeted branch
         const schedulePromises = branchChairDataResults.map(async ({ branchId, branch, chairData }) => {
 
+=======
+        // 2. Create schedule requests for each targeted branch using cached chair data
+        const schedulePromises = branchChairsData.map(async ({ branchId, branch, chairData }) => {
+>>>>>>> db7d5627d13235489168fa0141cb3c553d5fff7a
           let resolvedTimeFrom = '09:00:00'
           let resolvedTimeTo = '21:00:00'
 
@@ -519,7 +651,7 @@ const selectedServiceTypeId = watch('serviceTypeId')
           }
 
           const schedulePayload = {
-            salonServiceId: newServiceId,
+            salonServiceId: createdServiceId,
             branchId,
             applyAllThisMonth: false,
             fromDate: fromDateStr,
@@ -549,13 +681,13 @@ const selectedServiceTypeId = watch('serviceTypeId')
           return createSchedule(schedulePayload as any).unwrap()
         })
 
-        if (targetBranchIds.length > 0) {
+        if (branchChairsData.length > 0) {
           await Promise.all(schedulePromises)
         }
 
         toast.success(t('common.success'))
         onClose()
-        onCreated?.(newServiceId, values.nameEn)
+        onCreated?.(createdServiceId, values.nameEn)
       }
     } catch (err) {
       toast.error(getApiError(err, t('common.error')))
@@ -600,27 +732,45 @@ const selectedServiceTypeId = watch('serviceTypeId')
             <>
               {step === 1 && (
                 <>
-                  <Button variant="secondary" onClick={onClose} disabled={isLoading}>
+                  <Button variant="secondary" onClick={onClose} disabled={isLoading || isStep1Loading}>
                     {t('common.cancel')}
                   </Button>
-                  <Button onClick={nextStep1} rightIcon={isAr ? <HiChevronLeft size={15} /> : <HiChevronRight size={15} />}>
+                  <Button
+                    onClick={nextStep1}
+                    loading={isStep1Loading}
+                    rightIcon={isAr ? <HiChevronLeft size={15} /> : <HiChevronRight size={15} />}
+                  >
                     {isAr ? 'التالي' : 'Next'}
                   </Button>
                 </>
               )}
               {step === 2 && (
                 <>
-                  <Button variant="secondary" onClick={() => setStep(1)} leftIcon={isAr ? <HiChevronRight size={15} /> : <HiChevronLeft size={15} />}>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setStep(1)}
+                    disabled={isStep2Loading}
+                    leftIcon={isAr ? <HiChevronRight size={15} /> : <HiChevronLeft size={15} />}
+                  >
                     {isAr ? 'السابق' : 'Back'}
                   </Button>
-                  <Button onClick={nextStep2} rightIcon={isAr ? <HiChevronLeft size={15} /> : <HiChevronRight size={15} />}>
+                  <Button
+                    onClick={nextStep2}
+                    loading={isStep2Loading}
+                    rightIcon={isAr ? <HiChevronLeft size={15} /> : <HiChevronRight size={15} />}
+                  >
                     {isAr ? 'التالي' : 'Next'}
                   </Button>
                 </>
               )}
               {step === 3 && (
                 <>
-                  <Button variant="secondary" onClick={() => setStep(2)} leftIcon={isAr ? <HiChevronRight size={15} /> : <HiChevronLeft size={15} />}>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setStep(2)}
+                    disabled={isLoading}
+                    leftIcon={isAr ? <HiChevronRight size={15} /> : <HiChevronLeft size={15} />}
+                  >
                     {isAr ? 'السابق' : 'Back'}
                   </Button>
                   <Button onClick={handleSubmit(onSubmit)} loading={isLoading}>
