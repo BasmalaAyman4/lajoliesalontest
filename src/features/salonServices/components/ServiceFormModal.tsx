@@ -362,13 +362,10 @@ const selectedServiceTypeId = watch('serviceTypeId')
     if (open) {
       setStep(1)
       setHasBreaks(false)
-<<<<<<< HEAD
-=======
       setCreatedServiceId(null)
       setBranchChairsData([])
       setIsStep1Loading(false)
       setIsStep2Loading(false)
->>>>>>> db7d5627d13235489168fa0141cb3c553d5fff7a
       reset(
         service
           ? {
@@ -576,48 +573,6 @@ const selectedServiceTypeId = watch('serviceTypeId')
         toast.success(t('common.success'))
         onClose()
       } else {
-<<<<<<< HEAD
-        // 1. Determine targeted branches
-        let targetBranchIds: number[] = []
-        if (values.allBranches) {
-          targetBranchIds = branches.map((b) => b.id)
-        } else {
-          targetBranchIds = values.selectedBranchIds
-        }
-
-        // 2. PRE-VALIDATION: Check if all targeted branches have chairs
-        const branchChairDataResults = await Promise.all(
-            targetBranchIds.map(async (branchId) => {
-                const branch = branches.find((b) => b.id === branchId)
-                try {
-                    const chairData = await getChairCount({ branchId, serviceTypeId: Number(values.serviceTypeId) }).unwrap()
-                    return { branchId, branch, chairData, isValid: !!(chairData && chairData.chairTypeId && chairData.maxChairCount > 0) }
-                } catch (e) {
-                    return { branchId, branch, chairData: null, isValid: false }
-                }
-            })
-        )
-
-        const invalidBranches = branchChairDataResults.filter(r => !r.isValid).map(r => r.branch)
-
-        if (invalidBranches.length > 0) {
-            const branchNamesStr = invalidBranches.map(b => isAr ? b?.nameAr : b?.nameEn).join(' ، ')
-            const errMsg = isAr 
-                ? `الخدمة دي ملهاش كراسي في الفروع التالية: ${branchNamesStr}. ضيف كراسي للفرع الأول يا إما تختار الفروع اللي ليها كراسي للخدمة دي.`
-                : `This service has no chairs in the following branches: ${branchNamesStr}. Please add chairs to the branch first or select branches that have chairs for this service.`
-            toast.error(errMsg)
-            return
-        }
-
-        // 3. Create the new service
-        const newServiceId = await createService({
-          codeKey: '',
-          sortOrder: 0,
-          ...servicePayload,
-        }).unwrap()
-
-        // 4. Resolve dates
-=======
         // Create Mode - Service is already created and chairs are validated in Step 2.
         if (!createdServiceId) {
           toast.error(isAr ? 'يجب إنشاء الخدمة أولاً' : 'Service must be created first')
@@ -625,20 +580,13 @@ const selectedServiceTypeId = watch('serviceTypeId')
         }
 
         // 1. Resolve dates
->>>>>>> db7d5627d13235489168fa0141cb3c553d5fff7a
         const fromDateStr = values.allMonth ? toISODate(new Date()) : values.fromDate
         const toDateStr = values.allMonth ? getThirtyDaysFromToday() : values.toDate
 
         const [y, m, d] = (fromDateStr || '').split('-').map(Number)
 
-<<<<<<< HEAD
-        // 5. Create schedule requests for each targeted branch
-        const schedulePromises = branchChairDataResults.map(async ({ branchId, branch, chairData }) => {
-
-=======
         // 2. Create schedule requests for each targeted branch using cached chair data
         const schedulePromises = branchChairsData.map(async ({ branchId, branch, chairData }) => {
->>>>>>> db7d5627d13235489168fa0141cb3c553d5fff7a
           let resolvedTimeFrom = '09:00:00'
           let resolvedTimeTo = '21:00:00'
 
